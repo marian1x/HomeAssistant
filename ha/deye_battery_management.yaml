@@ -1,0 +1,275 @@
+# Native inverter protections and battery/BMS current limits are not modified.
+input_number:
+  deye_battery_min_soc:
+    name: Rezerva minima baterie
+    min: 20
+    max: 80
+    step: 5
+    unit_of_measurement: "%"
+    mode: box
+    icon: mdi:battery-lock
+  deye_battery_max_discharge_kw:
+    name: Putere maxima descarcare baterie
+    min: 0.5
+    max: 7
+    step: 0.5
+    unit_of_measurement: kW
+    mode: box
+    icon: mdi:battery-arrow-down
+  deye_battery_priority_soc:
+    name: Nivel baterie pentru consumatori flexibili
+    min: 50
+    max: 100
+    step: 5
+    unit_of_measurement: "%"
+    mode: box
+    icon: mdi:battery-check
+  deye_forecast_confidence_percent:
+    name: Procent conservator prognoza solara
+    min: 30
+    max: 90
+    step: 5
+    unit_of_measurement: "%"
+    mode: box
+    icon: mdi:weather-partly-cloudy
+  deye_forecast_max_reserve_soc:
+    name: Rezerva maxima adaptiva
+    min: 20
+    max: 90
+    step: 5
+    unit_of_measurement: "%"
+    mode: box
+    icon: mdi:battery-plus
+  deye_forecast_fallback_soc:
+    name: Rezerva fara prognoza valida
+    min: 20
+    max: 80
+    step: 5
+    unit_of_measurement: "%"
+    mode: box
+    icon: mdi:weather-cloudy-alert
+  deye_baseload_kw:
+    name: Consum de baza estimat pentru planificare
+    min: 0.1
+    max: 3
+    step: 0.1
+    unit_of_measurement: kW
+    mode: box
+    icon: mdi:home-lightning-bolt
+
+input_datetime:
+  deye_battery_last_policy_update:
+    name: Ultima aplicare politica baterie
+    has_date: true
+    has_time: true
+
+command_line:
+  - sensor:
+      name: Deye prognoza actualizare
+      unique_id: deye_prognoza_actualizare
+      command: "python3 /config/control_center/forecast_health.py"
+      scan_interval: 900
+      command_timeout: 10
+      device_class: timestamp
+      value_template: "{{ value_json.updated }}"
+
+template:
+  - sensor:
+      - name: Deye productie solara astazi
+        unique_id: deye_productie_solara_astazi_kwh
+        unit_of_measurement: kWh
+        device_class: energy
+        state_class: total_increasing
+        availability: >
+          {{ is_number(states('sensor.deye_today_production'))
+             and is_number(states('sensor.deye_microinverter_energy_today')) }}
+        state: >
+          {{ (states('sensor.deye_today_production') | float(0)
+             + states('sensor.deye_microinverter_energy_today') | float(0)) | round(2) }}
+
+      - name: Deye prognoza solar maine
+        unique_id: deye_prognoza_solar_maine_kwh
+        unit_of_measurement: kWh
+        device_class: energy
+        availability: >
+          {{ is_number(states('sensor.prognoza_solar_energy_production_tomorrow'))
+             and state_attr('sensor.prognoza_solar_energy_production_tomorrow', 'unit_of_measurement') in ['Wh', 'kWh'] }}
+        state: >
+          {% set id = 'sensor.prognoza_solar_energy_production_tomorrow' %}
+          {{ ((states(id) | float(0)) / (1000 if state_attr(id, 'unit_of_measurement') == 'Wh' else 1)) | round(2) }}
+        attributes:
+          configuratie: "15 kWp; 9 kWp SV, 6 kWp NE; inclinatie estimata 30 grade"
+
+      - name: Deye productie solara total
+        unique_id: deye_productie_solara_total_kwh
+        unit_of_measurement: kWh
+        device_class: energy
+        state_class: total_increasing
+        availability: >
+          {{ is_number(states('sensor.deye_total_production'))
+             and is_number(states('sensor.deye_microinverter_energy')) }}
+        state: >
+          {{ (states('sensor.deye_total_production') | float(0)
+             + states('sensor.deye_microinverter_energy') | float(0)) | round(2) }}
+
+      - name: Deye rezerva recomandata
+        unique_id: deye_rezerva_recomandata_soc
+        unit_of_measurement: "%"
+        state_class: measurement
+        icon: mdi:battery-lock
+        state: >
+          {% set floor = states('input_number.deye_battery_min_soc') | float(20) %}
+          {{ [[floor, 20] | max, 80] | min | int }}
+        attributes:
+          metoda: "Rezerva fixa aleasa de utilizator; implicit 20%. Prognoza nu ridica automat rezerva."
+
+      - name: Deye putere descarcare recomandata
+        unique_id: deye_putere_descarcare_recomandata_kw
+        unit_of_measurement: kW
+        device_class: power
+        state_class: measurement
+        availability: >
+          {{ is_number(states('sensor.deye_battery_voltage'))
+             and is_number(states('number.deye_battery_max_discharging_current'))
+             and is_number(state_attr('sensor.deye_battery', 'BMS Max Discharging Current'))
+             and is_number(state_attr('sensor.deye_battery', 'BMS Discharging Current')) }}
+        state: >
+          {% set amps = [states('number.deye_battery_max_discharging_current') | float(0),
+                         state_attr('sensor.deye_battery', 'BMS Max Discharging Current') | float(0),
+                         state_attr('sensor.deye_battery', 'BMS Discharging Current') | float(0)] | min %}
+          {% set kw = amps * states('sensor.deye_battery_voltage') | float(0) * 0.9 / 1000 %}
+          {{ ([states('input_number.deye_battery_max_discharge_kw') | float(7), 7, kw] | min * 10) | round(0, 'floor') / 10 }}
+
+  - binary_sensor:
+      - name: Deye prognoza valida
+        unique_id: deye_prognoza_valida
+        icon: mdi:weather-partly-cloudy
+        state: >
+          {% set stamp = as_timestamp(states('sensor.deye_prognoza_actualizare'), 0) %}
+          {{ is_number(states('sensor.deye_prognoza_solar_maine'))
+             and stamp > 0 and 0 <= as_timestamp(now()) - stamp < 10800 }}
+
+      - name: Deye baterie permite consumatori flexibili
+        unique_id: deye_baterie_permite_consumatori_flexibili
+        icon: mdi:battery-check
+        delay_on: "00:02:00"
+        state: >
+          {% set soc = states('sensor.deye_battery') | float(-1) %}
+          {% set target = states('input_number.deye_battery_priority_soc') | float(95) %}
+          {% set charging = states('sensor.baterie_incarcare_putere') | float(0) %}
+          {% set voltage = states('sensor.deye_battery_voltage') | float(0) %}
+          {% set bms_amps = state_attr('sensor.deye_battery', 'BMS Charging Current') | float(0) %}
+          {% set inv_amps = states('number.deye_battery_max_charging_current') | float(0) %}
+          {% set charge_limit = [bms_amps, inv_amps] | min * voltage / 1000 %}
+          {{ is_state('binary_sensor.deye_connection', 'on')
+             and is_state('binary_sensor.deye_battery_alarm', 'off')
+             and is_state('binary_sensor.deye_battery_fault', 'off')
+             and is_number(states('sensor.deye_battery_power'))
+             and states('sensor.deye_battery_power') | float(99999) <= 100
+             and (soc >= target or (charge_limit > 0 and charging >= charge_limit * 0.9)) }}
+
+automation:
+  - id: deye_battery_energy_manager
+    alias: Deye management baterie si prognoza
+    description: Controleaza numai pragurile SOC si puterea din cele sase intervale ToU. Oprit inseamna fara rescrierea setarilor manuale.
+    mode: single
+    max_exceeded: silent
+    triggers:
+      - trigger: time_pattern
+        minutes: "/5"
+      - trigger: state
+        entity_id:
+          - sensor.deye_rezerva_recomandata
+      - trigger: state
+        id: manual_limit
+        entity_id:
+          - input_number.deye_battery_max_discharge_kw
+          - input_number.deye_battery_min_soc
+    conditions:
+      - condition: state
+        entity_id: input_boolean.ha_automation_killswitch
+        state: "off"
+      - condition: state
+        entity_id: binary_sensor.deye_connection
+        state: "on"
+      - condition: state
+        entity_id: binary_sensor.deye_grid
+        state: "on"
+      - condition: state
+        entity_id: binary_sensor.deye_battery_alarm
+        state: "off"
+      - condition: state
+        entity_id: binary_sensor.deye_battery_fault
+        state: "off"
+      - condition: state
+        entity_id: switch.deye_battery_grid_charging
+        state: "off"
+      - condition: template
+        value_template: >
+          {{ states('select.deye_time_of_use') == 'Week'
+             and 40 <= states('sensor.deye_battery_voltage') | float(0) <= 60
+             and 0 <= states('sensor.deye_battery') | float(-1) <= 100
+             and as_timestamp(now()) - state_attr('binary_sensor.deye_connection', 'timestamp') | float(0) < 60
+             and is_number(states('sensor.deye_putere_descarcare_recomandata'))
+             and states('sensor.deye_putere_descarcare_recomandata') | float(0) >= 0.5
+             and ((trigger is defined and trigger.id | default('') == 'manual_limit')
+                  or as_timestamp(now()) - as_timestamp(states('input_datetime.deye_battery_last_policy_update'), 0) >= 900) }}
+    actions:
+      - variables:
+          reserve: "{{ states('sensor.deye_rezerva_recomandata') | int(40) }}"
+          watts: "{{ (states('sensor.deye_putere_descarcare_recomandata') | float(0) * 1000) | int }}"
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.deye_battery_last_policy_update
+        data:
+          timestamp: "{{ as_timestamp(now()) }}"
+      - repeat:
+          count: 6
+          sequence:
+            - condition: state
+              entity_id: input_boolean.ha_automation_killswitch
+              state: "off"
+            - condition: state
+              entity_id: automation.deye_management_baterie_si_prognoza
+              state: "on"
+            - condition: state
+              entity_id: binary_sensor.deye_connection
+              state: "on"
+            - condition: state
+              entity_id: binary_sensor.deye_grid
+              state: "on"
+            - condition: state
+              entity_id: binary_sensor.deye_battery_alarm
+              state: "off"
+            - condition: state
+              entity_id: binary_sensor.deye_battery_fault
+              state: "off"
+            - variables:
+                soc_entity: "{{ 'number.deye_program_' ~ repeat.index ~ '_soc' }}"
+                power_entity: "{{ 'number.deye_program_' ~ repeat.index ~ '_power' }}"
+            - condition: template
+              value_template: >
+                {{ is_number(states(soc_entity)) and is_number(states(power_entity))
+                   and states('select.deye_program_' ~ repeat.index ~ '_charging') in ['Disabled', 'Generator'] }}
+            - if:
+                - condition: template
+                  value_template: "{{ states(soc_entity) | int(-1) != reserve | int }}"
+              then:
+                - action: number.set_value
+                  target:
+                    entity_id: "{{ soc_entity }}"
+                  data:
+                    value: "{{ reserve }}"
+            - condition: state
+              entity_id: input_boolean.ha_automation_killswitch
+              state: "off"
+            - if:
+                - condition: template
+                  value_template: "{{ states(power_entity) | int(-1) != watts | int }}"
+              then:
+                - action: number.set_value
+                  target:
+                    entity_id: "{{ power_entity }}"
+                  data:
+                    value: "{{ watts }}"
+            - delay: "00:00:02"

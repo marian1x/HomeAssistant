@@ -1,0 +1,462 @@
+input_boolean:
+  hvac_solar_climate_enabled:
+    name: HVAC solar climate enabled
+    icon: mdi:home-thermometer
+
+  hvac_solar_preconditioning_enabled:
+    name: HVAC solar preconditioning enabled
+    icon: mdi:solar-power-variant
+    initial: true
+
+input_select:
+  hvac_season_mode:
+    name: HVAC season mode
+    icon: mdi:weather-partly-snowy-rainy
+    options:
+      - Auto
+      - Summer
+      - Winter
+      - Off
+    initial: Auto
+
+input_datetime:
+  hvac_last_command_sent:
+    name: HVAC last command sent
+    has_date: true
+    has_time: true
+
+input_text:
+  hvac_upstairs_ac_entity_id:
+    name: HVAC upstairs AC entity id
+    icon: mdi:air-conditioner
+    initial: climate.air
+    max: 80
+
+  hvac_downstairs_ac_entity_id:
+    name: HVAC downstairs AC entity id
+    icon: mdi:air-conditioner
+    initial: climate.living_living_air_cxbwrbfaaae_climate
+    max: 80
+
+  hvac_upstairs_thermostat_entity_id:
+    name: HVAC upstairs thermostat entity id
+    icon: mdi:thermostat
+    initial: climate.bedroom_heat
+    max: 80
+
+  hvac_downstairs_thermostat_entity_id:
+    name: HVAC downstairs thermostat entity id
+    icon: mdi:thermostat
+    initial: climate.heat
+    max: 80
+
+  hvac_upstairs_temperature_entity_id:
+    name: HVAC upstairs temperature entity id
+    icon: mdi:thermometer
+    initial: ""
+    max: 80
+
+  hvac_downstairs_temperature_entity_id:
+    name: HVAC downstairs temperature entity id
+    icon: mdi:thermometer
+    initial: ""
+    max: 80
+
+input_number:
+  hvac_summer_target_c:
+    name: HVAC summer target
+    icon: mdi:snowflake-thermometer
+    min: 20
+    max: 28
+    step: 0.5
+    unit_of_measurement: "°C"
+    mode: box
+    initial: 24
+
+  hvac_winter_target_c:
+    name: HVAC winter target
+    icon: mdi:sun-thermometer
+    min: 18
+    max: 25
+    step: 0.5
+    unit_of_measurement: "°C"
+    mode: box
+    initial: 22
+
+  hvac_comfort_deadband_c:
+    name: HVAC comfort deadband
+    icon: mdi:tune-vertical
+    min: 0.2
+    max: 2
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+    initial: 0.6
+
+  hvac_assist_delta_c:
+    name: HVAC assist delta
+    icon: mdi:air-conditioner
+    min: 0.5
+    max: 4
+    step: 0.1
+    unit_of_measurement: "°C"
+    mode: box
+    initial: 1.5
+
+  hvac_solar_surplus_threshold_kw:
+    name: HVAC solar surplus threshold
+    icon: mdi:transmission-tower-export
+    min: 0
+    max: 8
+    step: 0.1
+    unit_of_measurement: kW
+    mode: box
+    initial: 2
+
+  hvac_precondition_offset_c:
+    name: HVAC solar precondition offset
+    icon: mdi:solar-power
+    min: 0
+    max: 3
+    step: 0.5
+    unit_of_measurement: "°C"
+    mode: box
+    initial: 1
+
+  hvac_min_command_interval_min:
+    name: HVAC minimum command interval
+    icon: mdi:timer-sand
+    min: 5
+    max: 60
+    step: 1
+    unit_of_measurement: min
+    mode: box
+    initial: 15
+
+template:
+  - sensor:
+      - name: HVAC effective season
+        unique_id: hvac_effective_season
+        icon: mdi:weather-partly-snowy-rainy
+        state: >
+          {% set selected = states('input_select.hvac_season_mode') %}
+          {% if selected in ['Summer', 'Winter', 'Off'] %}
+            {{ selected }}
+          {% else %}
+            {% set m = now().month %}
+            {% if m in [5, 6, 7, 8, 9] %}
+              Summer
+            {% elif m in [11, 12, 1, 2, 3] %}
+              Winter
+            {% else %}
+              Off
+            {% endif %}
+          {% endif %}
+
+      - name: HVAC upstairs temperature
+        unique_id: hvac_upstairs_temperature
+        icon: mdi:thermometer
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        availability: >
+          {% set configured = states('input_text.hvac_upstairs_temperature_entity_id') %}
+          {% set fallback = states('input_text.hvac_upstairs_thermostat_entity_id') %}
+          {% set e = configured if configured not in ['unknown', 'unavailable', 'none', 'None', ''] else fallback %}
+          {% set attr_temp = state_attr(e, 'current_temperature') %}
+          {% set raw = attr_temp if attr_temp is number else states(e) | float(none) %}
+          {% set value = (raw / 2) if raw is number and raw > 35 and raw <= 70 else raw %}
+          {{ value is number and value >= 5 and value <= 35 }}
+        state: >
+          {% set configured = states('input_text.hvac_upstairs_temperature_entity_id') %}
+          {% set fallback = states('input_text.hvac_upstairs_thermostat_entity_id') %}
+          {% set e = configured if configured not in ['unknown', 'unavailable', 'none', 'None', ''] else fallback %}
+          {% set attr_temp = state_attr(e, 'current_temperature') %}
+          {% set raw = attr_temp if attr_temp is number else states(e) | float(none) %}
+          {% set value = (raw / 2) if raw is number and raw > 35 and raw <= 70 else raw %}
+          {% if value is number and value >= 5 and value <= 35 %}
+            {{ value | round(1) }}
+          {% endif %}
+
+      - name: HVAC downstairs temperature
+        unique_id: hvac_downstairs_temperature
+        icon: mdi:thermometer
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        availability: >
+          {% set configured = states('input_text.hvac_downstairs_temperature_entity_id') %}
+          {% set fallback = states('input_text.hvac_downstairs_thermostat_entity_id') %}
+          {% set e = configured if configured not in ['unknown', 'unavailable', 'none', 'None', ''] else fallback %}
+          {% set attr_temp = state_attr(e, 'current_temperature') %}
+          {% set raw = attr_temp if attr_temp is number else states(e) | float(none) %}
+          {% set value = (raw / 2) if raw is number and raw > 35 and raw <= 70 else raw %}
+          {{ value is number and value >= 5 and value <= 35 }}
+        state: >
+          {% set configured = states('input_text.hvac_downstairs_temperature_entity_id') %}
+          {% set fallback = states('input_text.hvac_downstairs_thermostat_entity_id') %}
+          {% set e = configured if configured not in ['unknown', 'unavailable', 'none', 'None', ''] else fallback %}
+          {% set attr_temp = state_attr(e, 'current_temperature') %}
+          {% set raw = attr_temp if attr_temp is number else states(e) | float(none) %}
+          {% set value = (raw / 2) if raw is number and raw > 35 and raw <= 70 else raw %}
+          {% if value is number and value >= 5 and value <= 35 %}
+            {{ value | round(1) }}
+          {% endif %}
+
+      - name: HVAC target temperature
+        unique_id: hvac_target_temperature
+        icon: mdi:thermostat
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        availability: "{{ states('sensor.hvac_effective_season') in ['Summer', 'Winter'] }}"
+        state: >
+          {% if is_state('sensor.hvac_effective_season', 'Summer') %}
+            {{ states('input_number.hvac_summer_target_c') | float(24) }}
+          {% elif is_state('sensor.hvac_effective_season', 'Winter') %}
+            {{ states('input_number.hvac_winter_target_c') | float(22) }}
+          {% endif %}
+
+  - binary_sensor:
+      - name: HVAC solar surplus available
+        unique_id: hvac_solar_surplus_available
+        icon: mdi:solar-power-variant
+        state: >
+          {{ (states('sensor.injectie_in_retea') | float(0)) >=
+             (states('input_number.hvac_solar_surplus_threshold_kw') | float(2)) }}
+
+      - name: HVAC upstairs AC configured
+        unique_id: hvac_upstairs_ac_configured
+        icon: mdi:air-conditioner
+        state: >
+          {% set e = states('input_text.hvac_upstairs_ac_entity_id') %}
+          {{ e.startswith('climate.') and states(e) not in ['unknown', 'unavailable', 'none', 'None', ''] }}
+
+      - name: HVAC downstairs AC configured
+        unique_id: hvac_downstairs_ac_configured
+        icon: mdi:air-conditioner
+        state: >
+          {% set e = states('input_text.hvac_downstairs_ac_entity_id') %}
+          {{ e.startswith('climate.') and states(e) not in ['unknown', 'unavailable', 'none', 'None', ''] }}
+
+script:
+  hvac_set_climate:
+    alias: HVAC set climate
+    mode: parallel
+    fields:
+      entity_id:
+        name: Entity
+        required: true
+      hvac_mode:
+        name: HVAC mode
+        required: true
+      temperature:
+        name: Temperature
+        required: true
+    sequence:
+      - condition: template
+        value_template: "{{ entity_id.startswith('climate.') and states(entity_id) not in ['unknown', 'unavailable', 'none', 'None', ''] }}"
+      - condition: template
+        value_template: >
+          {% set current_temp = state_attr(entity_id, 'temperature') %}
+          {% set requested_temp = temperature | float(0) %}
+          {% set interval = states('input_number.hvac_min_command_interval_min') | float(15) %}
+          {% set last = states('input_datetime.hvac_last_command_sent') %}
+          {% set interval_ok = last in ['unknown', 'unavailable', 'none', 'None', ''] or
+             (as_timestamp(now()) - as_timestamp(last, 0)) > (interval * 60) %}
+          {{ interval_ok and (
+               states(entity_id) != hvac_mode or
+               (current_temp is number and (((current_temp | float(0)) - requested_temp) | abs > 0.4))
+             ) }}
+      - if:
+          - condition: template
+            value_template: "{{ states(entity_id) != hvac_mode }}"
+        then:
+          - service: climate.set_hvac_mode
+            target:
+              entity_id: "{{ entity_id }}"
+            data:
+              hvac_mode: "{{ hvac_mode }}"
+      - if:
+          - condition: template
+            value_template: >
+              {% set current_temp = state_attr(entity_id, 'temperature') %}
+              {{ current_temp is number and (((current_temp | float(0)) - (temperature | float(0))) | abs > 0.4) }}
+        then:
+          - service: climate.set_temperature
+            target:
+              entity_id: "{{ entity_id }}"
+            data:
+              temperature: "{{ temperature }}"
+      - service: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.hvac_last_command_sent
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+automation:
+  - id: hvac_discover_known_entities
+    alias: HVAC discover known entities
+    mode: single
+    trigger:
+      - platform: homeassistant
+        event: start
+      - platform: time_pattern
+        minutes: "/10"
+    action:
+      - if:
+          - condition: template
+            value_template: >
+              {{ states('climate.air') not in ['unknown', 'unavailable', 'none', 'None', '']
+                 and states('input_text.hvac_upstairs_ac_entity_id') in ['climate.whirlpool_ac', 'unknown', 'unavailable', ''] }}
+        then:
+          - service: input_text.set_value
+            target:
+              entity_id: input_text.hvac_upstairs_ac_entity_id
+            data:
+              value: climate.air
+      - if:
+          - condition: template
+            value_template: "{{ states('climate.bedroom_heat') not in ['unknown', 'unavailable', 'none', 'None', ''] }}"
+        then:
+          - service: input_text.set_value
+            target:
+              entity_id: input_text.hvac_upstairs_thermostat_entity_id
+            data:
+              value: climate.bedroom_heat
+      - if:
+          - condition: template
+            value_template: "{{ states('climate.heat') not in ['unknown', 'unavailable', 'none', 'None', ''] }}"
+        then:
+          - service: input_text.set_value
+            target:
+              entity_id: input_text.hvac_downstairs_thermostat_entity_id
+            data:
+              value: climate.heat
+
+  - id: hvac_solar_climate_control
+    alias: HVAC solar climate control
+    mode: restart
+    trigger:
+      - platform: time_pattern
+        minutes: "/10"
+      - platform: state
+        entity_id:
+          - input_boolean.hvac_solar_climate_enabled
+          - input_select.hvac_season_mode
+    condition:
+      - condition: state
+        entity_id: input_boolean.hvac_solar_climate_enabled
+        state: "on"
+      - condition: template
+        value_template: "{{ states('sensor.hvac_effective_season') in ['Summer', 'Winter'] }}"
+      - condition: template
+        value_template: >
+          {{ is_state('binary_sensor.hvac_upstairs_ac_configured', 'on')
+             or is_state('binary_sensor.hvac_downstairs_ac_configured', 'on') }}
+      - condition: template
+        value_template: >
+          {{ is_number(states('sensor.hvac_upstairs_temperature'))
+             and is_number(states('sensor.hvac_downstairs_temperature')) }}
+    action:
+      - variables:
+          season: "{{ states('sensor.hvac_effective_season') }}"
+          up_ac: "{{ states('input_text.hvac_upstairs_ac_entity_id') }}"
+          down_ac: "{{ states('input_text.hvac_downstairs_ac_entity_id') }}"
+          up_temp: "{{ states('sensor.hvac_upstairs_temperature') | float(999) }}"
+          down_temp: "{{ states('sensor.hvac_downstairs_temperature') | float(999) }}"
+          target: "{{ states('sensor.hvac_target_temperature') | float(0) }}"
+          deadband: "{{ states('input_number.hvac_comfort_deadband_c') | float(0.6) }}"
+          assist_delta: "{{ states('input_number.hvac_assist_delta_c') | float(1.5) }}"
+          precondition_offset: "{{ states('input_number.hvac_precondition_offset_c') | float(1) }}"
+          solar_surplus: "{{ is_state('binary_sensor.hvac_solar_surplus_available', 'on') and is_state('input_boolean.hvac_solar_preconditioning_enabled', 'on') }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ season == 'Summer' }}"
+            sequence:
+              - variables:
+                  cooling_target: "{{ target }}"
+                  need_main: "{{ up_temp > (target + deadband) or down_temp > (target + assist_delta) or (solar_surplus and up_temp > (target - precondition_offset)) }}"
+                  need_assist: "{{ down_temp > (target + assist_delta) or (solar_surplus and down_temp > (target - precondition_offset)) }}"
+              - if:
+                  - condition: template
+                    value_template: "{{ need_main and is_state('binary_sensor.hvac_upstairs_ac_configured', 'on') }}"
+                then:
+                  - service: script.hvac_set_climate
+                    data:
+                      entity_id: "{{ up_ac }}"
+                      hvac_mode: cool
+                      temperature: "{{ cooling_target }}"
+              - if:
+                  - condition: template
+                    value_template: "{{ need_assist and is_state('binary_sensor.hvac_downstairs_ac_configured', 'on') }}"
+                then:
+                  - service: script.hvac_set_climate
+                    data:
+                      entity_id: "{{ down_ac }}"
+                      hvac_mode: cool
+                      temperature: "{{ cooling_target }}"
+              - if:
+                  - condition: template
+                    value_template: "{{ up_temp <= (target - deadband) and down_temp <= (target + deadband) and not solar_surplus }}"
+                then:
+                  - if:
+                      - condition: template
+                        value_template: "{{ is_state('binary_sensor.hvac_downstairs_ac_configured', 'on') }}"
+                    then:
+                      - service: climate.turn_off
+                        target:
+                          entity_id: "{{ down_ac }}"
+                  - if:
+                      - condition: template
+                        value_template: "{{ is_state('binary_sensor.hvac_upstairs_ac_configured', 'on') }}"
+                    then:
+                      - service: climate.turn_off
+                        target:
+                          entity_id: "{{ up_ac }}"
+
+          - conditions:
+              - condition: template
+                value_template: "{{ season == 'Winter' }}"
+            sequence:
+              - variables:
+                  heating_target: "{{ target }}"
+                  need_main: "{{ down_temp < (target - deadband) or up_temp < (target - assist_delta) or (solar_surplus and down_temp < (target + precondition_offset)) }}"
+                  need_assist: "{{ up_temp < (target - assist_delta) or (solar_surplus and up_temp < (target + precondition_offset)) }}"
+              - if:
+                  - condition: template
+                    value_template: "{{ need_main and is_state('binary_sensor.hvac_downstairs_ac_configured', 'on') }}"
+                then:
+                  - service: script.hvac_set_climate
+                    data:
+                      entity_id: "{{ down_ac }}"
+                      hvac_mode: heat
+                      temperature: "{{ heating_target }}"
+              - if:
+                  - condition: template
+                    value_template: "{{ need_assist and is_state('binary_sensor.hvac_upstairs_ac_configured', 'on') }}"
+                then:
+                  - service: script.hvac_set_climate
+                    data:
+                      entity_id: "{{ up_ac }}"
+                      hvac_mode: heat
+                      temperature: "{{ heating_target }}"
+              - if:
+                  - condition: template
+                    value_template: "{{ down_temp >= (target + deadband) and up_temp >= (target - deadband) and not solar_surplus }}"
+                then:
+                  - if:
+                      - condition: template
+                        value_template: "{{ is_state('binary_sensor.hvac_upstairs_ac_configured', 'on') }}"
+                    then:
+                      - service: climate.turn_off
+                        target:
+                          entity_id: "{{ up_ac }}"
+                  - if:
+                      - condition: template
+                        value_template: "{{ is_state('binary_sensor.hvac_downstairs_ac_configured', 'on') }}"
+                    then:
+                      - service: climate.turn_off
+                        target:
+                          entity_id: "{{ down_ac }}"

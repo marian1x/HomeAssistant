@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.state/
+.venv/
+.env
+test-results/
+tests/fixtures/
+__pycache__/
+.pytest_cache/
+deploy/nginx-site.*.conf
+tsconfig.tsbuildinfo
+ops/local-dns-result.json

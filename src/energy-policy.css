@@ -1,0 +1,58 @@
+.policy-page { padding: 26px 0 40px; min-width: 0; }
+.policy-heading, .policy-parameters > header { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.policy-heading h1 { font-size: 26px; margin: 7px 0 20px; letter-spacing: 0; }
+.policy-health { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; padding: 9px 0; color: var(--amber); }
+.policy-health.good { color: var(--green); }
+.policy-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); background: var(--surface); backdrop-filter: blur(20px); border-block: 1px solid var(--line); }
+.policy-summary > div { display: flex; flex-direction: column; gap: 8px; padding: 22px; border-right: 1px solid var(--line); }
+.policy-summary > div:last-child { border: 0; }
+.policy-summary span, .policy-summary small { color: var(--muted); font-size: 12px; }
+.policy-summary strong { font-size: 24px; font-weight: 500; }
+.policy-priorities { display: flex; list-style: none; margin: 25px 0 12px; padding: 0; gap: 0; border-block: 1px solid var(--line); background: var(--surface); }
+.policy-priorities li { display: flex; align-items: center; gap: 9px; flex: 1; padding: 18px 14px; min-width: 0; color: var(--muted); font-size: 12px; }
+.policy-priorities li > span { font-size: 10px; color: var(--green); }
+.policy-priorities li:nth-child(3) { color: var(--blue); }
+.policy-priorities li:nth-child(4) { color: var(--amber); }
+.policy-reason { font-size: 13px; color: var(--muted); min-height: 22px; line-height: 1.6; }
+.policy-quota { padding: 18px 0; border-bottom: 1px solid var(--line); }
+.policy-quota header { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; font-size: 13px; }
+.policy-quota header > span { color: var(--green); font-size: 11px; margin-left: auto; }
+.policy-quota > div { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 14px 0; }
+.policy-quota > div > span { display: flex; flex-direction: column; gap: 8px; font-size: 11px; color: var(--muted); }
+.policy-quota strong { color: var(--text); }
+.policy-quota > small { color: var(--muted); font-size: 11px; }
+@media (max-width: 600px) { .policy-quota > div { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.policy-devices { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 22px 0 34px; }
+.policy-device { min-width: 0; background: var(--surface); backdrop-filter: blur(20px); border: 1px solid var(--line); border-radius: 8px; padding: 18px; box-shadow: var(--shadow); }
+.policy-device header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.policy-device h2 { font-size: 14px; margin: 0; }
+.policy-device header > span { flex-basis: 100%; color: var(--muted); font-size: 11px; margin-top: 5px; }
+.policy-device.solar header { color: var(--green); }
+.policy-device.manual header { color: var(--amber); }
+.policy-device.unavailable { opacity: .8; }
+.policy-setpoint { display: block; font-size: 27px; font-weight: 500; margin: 20px 0 12px; }
+.policy-device p { font-size: 12px; color: var(--muted); line-height: 1.6; min-height: 40px; margin: 0 0 10px; }
+.policy-device > small { font-size: 11px; color: var(--muted); }
+.policy-hold { display: flex; gap: 7px; align-items: center; margin-top: 10px; font-size: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.policy-hold > span { flex: 1; min-width: 0; }
+.policy-parameters { border-top: 1px solid var(--line); padding-top: 24px; }
+.policy-parameters h2 { margin: 0 0 6px; font-size: 19px; }
+.policy-parameters .muted { font-size: 12px; }
+.policy-actions { display: flex; gap: 10px; }
+.policy-search { display: flex; gap: 10px; align-items: center; max-width: 380px; margin: 23px 0; border-bottom: 1px solid var(--line); }
+.policy-search input { background: transparent; border: 0; padding: 10px 0; width: 100%; min-width: 0; }
+.policy-group { border-top: 1px solid var(--line); padding: 0; background: var(--surface); backdrop-filter: blur(20px); }
+.policy-group summary { cursor: pointer; padding: 18px; font-size: 14px; }
+.policy-group summary > small { float: right; font-size: 11px; color: var(--muted); }
+.policy-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 30px; padding: 0 18px 20px; }
+.policy-field { display: flex; align-items: center; justify-content: space-between; min-width: 0; gap: 18px; padding: 13px 0; border-top: 1px solid var(--line); }
+.policy-field > label { font-size: 12px; line-height: 1.6; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.policy-field select, .policy-field input:not([type=checkbox]) { max-width: 210px; width: 100%; min-width: 0; font-size: 12px; background: var(--inset); border: 1px solid var(--line); border-radius: 5px; padding: 9px; }
+.policy-field select { flex: 0 1 160px; }
+.policy-input { display: flex; align-items: center; gap: 6px; flex: 0 1 185px; min-width: 0; }
+.policy-input > small { font-size: 10px; color: var(--muted); }
+.policy-field input[type=checkbox] { accent-color: var(--green); width: 36px; height: 20px; cursor: pointer; }
+.policy-message { display: flex; align-items: start; gap: 9px; line-height: 1.6; font-size: 13px; padding: 13px 0; overflow-wrap: anywhere; }
+.policy-message svg { flex-shrink: 0; margin-top: 3px; }
+@media (max-width: 1100px) { .policy-devices { grid-template-columns: repeat(2, minmax(0, 1fr)); } .policy-fields { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .policy-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .policy-summary > div { padding: 18px 12px; } .policy-summary strong { font-size: 21px; } .policy-summary > div:nth-child(2) { border: 0; } .policy-heading h1 { font-size: 23px; margin-bottom: 6px; } .policy-priorities { flex-wrap: wrap; } .policy-priorities li { flex: 0 0 33.333%; padding: 12px 8px; box-sizing: border-box; font-size: 10px; gap: 5px; } .policy-device { padding: 13px; } .policy-device header { min-height: 60px; } .policy-device header > svg { width: 19px; } .policy-device h2 { font-size: 12px; } .policy-device p { min-height: 65px; } .policy-fields { padding: 0 12px 18px; } .policy-field { gap: 10px; } .policy-input { flex-basis: 135px; } .policy-field select { flex-basis: 135px; } .policy-hold { flex-wrap: wrap; } }

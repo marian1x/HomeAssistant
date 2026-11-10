@@ -1,0 +1,1 @@
+{"title":"Control energetic casa","config":{"step":{"user":{"title":"Control energetic si confort","description":"Creeaza un controler unic. Pornirea si parametrii se configureaza din Casa Salavat; Tesla ramane dezactivata pana la reinrolare."}},"abort":{"already_configured":"Controlerul exista deja."}}}

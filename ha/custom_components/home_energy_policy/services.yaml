@@ -1,0 +1,27 @@
+configure:
+  name: Configure energy policy
+  description: Admin only. Validated parameters and optimistic revision are required.
+  fields:
+    values:
+      required: true
+      selector:
+        object:
+    revision:
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 999999
+          mode: box
+resume_device:
+  name: Resume automatic control
+  fields:
+    device:
+      required: true
+      selector:
+        select:
+          options:
+            - tcl
+            - whirlpool
+            - boiler
+            - tesla

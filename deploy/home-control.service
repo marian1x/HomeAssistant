@@ -1,0 +1,32 @@
+[Unit]
+Description=Casa Salavat - Home Assistant web control
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=homecontrol
+Group=homecontrol
+WorkingDirectory=/home/pi5/proiecte/Home Assistant
+EnvironmentFile=/etc/home-control.env
+ExecStart="/home/pi5/proiecte/Home Assistant/.venv/bin/python" -m uvicorn server.app:app --host 127.0.0.1 --port 8765 --no-access-log --log-level warning --timeout-graceful-shutdown 10
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+StateDirectory=home-control
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/home-control
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LimitNOFILE=4096
+MemoryMax=384M
+
+[Install]
+WantedBy=multi-user.target

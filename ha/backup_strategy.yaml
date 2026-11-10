@@ -1,0 +1,57 @@
+automation:
+  - id: ha_full_backup_morning_evening
+    alias: HA full backup morning and evening
+    description: "Full backup including history at 07:00 and 19:00. Google Drive keeps the latest five full copies. Independent of household pause."
+    initial_state: true
+    mode: single
+    triggers:
+      - trigger: time
+        at: "07:00:00"
+      - trigger: time
+        at: "19:00:00"
+    actions:
+      - action: hassio.backup_full
+        data:
+          name: "HA full {{ now().strftime('%Y-%m-%d %H:%M') }}"
+          homeassistant_exclude_database: false
+
+  - id: ha_backup_integrity_monitor
+    alias: HA backup integrity monitor
+    description: "Warn if no full backup has reached Drive in 18 hours. Does not read or delete archives."
+    initial_state: true
+    mode: single
+    triggers:
+      - trigger: time_pattern
+        minutes: "30"
+      - trigger: homeassistant
+        event: start
+    actions:
+      - if:
+          - condition: template
+            value_template: "{{ trigger is defined and trigger.platform == 'homeassistant' }}"
+        then:
+          - delay: "00:05:00"
+      - variables:
+          uploaded_full: >
+            {% set ns = namespace(latest=0) %}
+            {% for item in state_attr('sensor.backup_state', 'backups') or [] %}
+              {% if item.name.startswith('HA full ') and item.state == 'Backed Up' %}
+                {% set ns.latest = [ns.latest, as_timestamp(item.date, 0)] | max %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.latest }}
+      - if:
+          - condition: template
+            value_template: "{{ as_timestamp(now()) - uploaded_full | float(0) > 64800 }}"
+        then:
+          - action: persistent_notification.create
+            data:
+              notification_id: ha_full_backup_stale
+              title: Backup complet lipsa sau neincarcat
+              message: >
+                Nu exista confirmarea unui backup complet incarcat in Google Drive
+                in ultimele 18 ore. Verifica aplicatia Google Drive Backup.
+        else:
+          - action: persistent_notification.dismiss
+            data:
+              notification_id: ha_full_backup_stale

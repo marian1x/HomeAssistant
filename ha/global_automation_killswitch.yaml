@@ -1,0 +1,94 @@
+input_boolean:
+  ha_automation_killswitch:
+    name: Oprire globala automatizari
+    icon: mdi:alert-octagon
+
+automation:
+  - id: ha_global_automation_killswitch_controller
+    alias: HA global automation killswitch controller
+    description: Opreste automatizarile casei; backupurile si monitorizarea lor continua.
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id: input_boolean.ha_automation_killswitch
+      - platform: homeassistant
+        event: start
+    action:
+      - variables:
+          controller: automation.ha_global_automation_killswitch_controller
+          maintenance:
+            - automation.ha_full_backup_morning_and_evening
+            - automation.ha_backup_integrity_monitor
+          controlled_automations: >
+            {{ states.automation
+               | rejectattr('entity_id', 'eq', controller)
+               | rejectattr('entity_id', 'in', maintenance)
+               | map(attribute='entity_id')
+               | list }}
+      - choose:
+          - conditions:
+              - condition: state
+                entity_id: input_boolean.ha_automation_killswitch
+                state: "on"
+            sequence:
+              - if:
+                  - condition: template
+                    value_template: "{{ trigger.platform != 'homeassistant' }}"
+                then:
+                  - service: scene.create
+                    data:
+                      scene_id: ha_automations_before_killswitch
+                      snapshot_entities: "{{ controlled_automations }}"
+              - service: automation.turn_off
+                target:
+                  entity_id: "{{ controlled_automations }}"
+                data:
+                  stop_actions: true
+              - service: persistent_notification.create
+                data:
+                  notification_id: ha_automation_killswitch
+                  title: Automatizarile casei sunt oprite
+                  message: >
+                    Pauza globala este activa. Home Assistant si integrarile continua
+                    sa functioneze. Backupurile si monitorizarea lor raman active.
+        default:
+          - condition: template
+            value_template: "{{ trigger.platform != 'homeassistant' }}"
+          - if:
+              - condition: template
+                value_template: "{{ states('scene.ha_automations_before_killswitch') not in ['unknown', 'unavailable'] }}"
+            then:
+              - service: scene.turn_on
+                target:
+                  entity_id: scene.ha_automations_before_killswitch
+            else:
+              - service: persistent_notification.create
+                data:
+                  notification_id: ha_automation_restore_missing
+                  title: Reactiveaza manual automatizarile dorite
+                  message: >
+                    Pauza globala a fost dezactivata, dar starea anterioara nu mai
+                    este disponibila dupa repornire. Automatizarile raman oprite;
+                    activeaza manual numai regulile pe care doresti sa le folosesti.
+          - service: persistent_notification.dismiss
+            data:
+              notification_id: ha_automation_killswitch
+
+script:
+  ha_emergency_stop_automations:
+    alias: Opreste toate automatizarile
+    icon: mdi:alert-octagon
+    mode: single
+    sequence:
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.ha_automation_killswitch
+
+  ha_restore_automations:
+    alias: Reporneste automatizarile
+    icon: mdi:shield-check
+    mode: single
+    sequence:
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.ha_automation_killswitch

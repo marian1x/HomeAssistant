@@ -1,0 +1,589 @@
+input_boolean:
+  tesla_solar_charging_enabled:
+    name: Tesla solar charging
+    icon: mdi:solar-power-variant
+  tesla_manual_charge_override:
+    name: Tesla manual charge override
+    icon: mdi:car-clock
+    initial: false
+
+input_datetime:
+  tesla_solar_last_amp_increase:
+    name: Tesla solar last amp increase
+    has_date: true
+    has_time: true
+
+input_number:
+  tesla_solar_polling_start_margin_w:
+    name: Tesla polling start margin
+    min: 0
+    max: 3000
+    step: 100
+    unit_of_measurement: W
+    icon: mdi:wifi-refresh
+    initial: 1200
+  tesla_solar_start_export_w:
+    name: Tesla start export threshold
+    min: 500
+    max: 8000
+    step: 100
+    unit_of_measurement: W
+    icon: mdi:transmission-tower-export
+    initial: 3000
+  tesla_solar_stop_import_w:
+    name: Tesla stop import threshold
+    min: 0
+    max: 3000
+    step: 50
+    unit_of_measurement: W
+    icon: mdi:transmission-tower-import
+    initial: 900
+  tesla_solar_start_export_economic_w:
+    name: Tesla economic start export threshold
+    min: 500
+    max: 8000
+    step: 100
+    unit_of_measurement: W
+    icon: mdi:cash-sync
+    initial: 2500
+  tesla_solar_min_amps:
+    name: Tesla minimum charging amps
+    min: 5
+    max: 16
+    step: 1
+    unit_of_measurement: A
+    icon: mdi:current-ac
+    initial: 5
+  tesla_solar_max_amps:
+    name: Tesla maximum charging amps
+    min: 5
+    max: 12
+    step: 1
+    unit_of_measurement: A
+    icon: mdi:current-ac
+    initial: 12
+  tesla_solar_voltage:
+    name: Tesla charging voltage
+    min: 200
+    max: 250
+    step: 1
+    unit_of_measurement: V
+    icon: mdi:sine-wave
+    initial: 220
+  tesla_solar_phases:
+    name: Tesla charging phases
+    min: 1
+    max: 3
+    step: 1
+    icon: mdi:counter
+    initial: 3
+
+template:
+  - sensor:
+      - name: Tesla solar grid power
+        unique_id: tesla_solar_grid_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_number(states('sensor.deye_grid_power')) }}"
+        state: "{{ (0 - states('sensor.deye_grid_power') | float(0)) | round(0) }}"
+      - name: Tesla solar export power
+        unique_id: tesla_solar_export_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_number(states('sensor.deye_grid_power')) }}"
+        state: "{{ [0, 0 - states('sensor.deye_grid_power') | float(0)] | max | round(0) }}"
+      - name: Tesla solar import power
+        unique_id: tesla_solar_import_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_number(states('sensor.deye_grid_power')) }}"
+        state: "{{ [0, states('sensor.deye_grid_power') | float(0)] | max | round(0) }}"
+      - name: Tesla solar watts per amp
+        unique_id: tesla_solar_watts_per_amp
+        unit_of_measurement: W/A
+        icon: mdi:current-ac
+        state: >
+          {{ ((states('input_number.tesla_solar_voltage') | float(220)) *
+              (states('input_number.tesla_solar_phases') | float(3))) | round(0) }}
+      - name: Tesla charger power watts
+        unique_id: tesla_charger_power_watts
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_number(states('sensor.salavat_t3_charger_power')) }}"
+        state: "{{ ((states('sensor.salavat_t3_charger_power') | float(0)) * 1000) | round(0) }}"
+      - name: Tesla estimated charger power watts
+        unique_id: tesla_estimated_charger_power_watts
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        state: >
+          {% if is_state('switch.salavat_t3_charger', 'on') and
+                is_state('binary_sensor.salavat_t3_charging', 'on') %}
+            {{ ((states('number.salavat_t3_charging_amps') | float(0)) *
+                (states('sensor.tesla_solar_watts_per_amp') | float(660))) | round(0) }}
+          {% else %}
+            0
+          {% endif %}
+      - name: Tesla effective charger power watts
+        unique_id: tesla_effective_charger_power_watts
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        state: >
+          {% if is_state('switch.salavat_t3_charger', 'on') and
+                is_state('binary_sensor.salavat_t3_charging', 'on') and
+                (states('number.salavat_t3_charging_amps') | float(0)) > 0 %}
+            {{ states('sensor.tesla_estimated_charger_power_watts') | float(0) | round(0) }}
+          {% elif is_state('switch.salavat_t3_charger', 'on') %}
+            {{ states('sensor.tesla_charger_power_watts') | float(0) | round(0) }}
+          {% else %}
+            0
+          {% endif %}
+      - name: Tesla solar available charging power
+        unique_id: tesla_solar_available_charging_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: >
+          {{ is_number(states('sensor.deye_grid_power'))
+             and is_number(states('sensor.deye_battery_power')) }}
+        state: >
+          {{ ((states('sensor.tesla_effective_charger_power_watts') | float(0)) -
+              (states('sensor.tesla_solar_import_power') | float(0)) +
+              (states('sensor.tesla_solar_export_power') | float(0)) -
+              ([0, states('sensor.deye_battery_power') | float(0)] | max)) | round(0) }}
+      - name: Tesla solar boiler priority power
+        unique_id: tesla_solar_boiler_priority_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        state: >
+          {% set power_switch = states('input_text.ariston_boiler_power_switch_entity_id') %}
+          {% if power_switch.startswith('switch.') and is_state(power_switch, 'on') %}
+            {{ ((states('sensor.ariston_boiler_power_estimated') | float(0)) * 1000) | round(0) }}
+          {% else %}
+            0
+          {% endif %}
+      - name: Tesla solar priority available charging power
+        unique_id: tesla_solar_priority_available_charging_power
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        availability: "{{ is_number(states('sensor.tesla_solar_available_charging_power')) }}"
+        state: >
+          {{ ((states('sensor.tesla_solar_available_charging_power') | float(0)) +
+              (states('sensor.tesla_solar_boiler_priority_power') | float(0))) | round(0) }}
+      - name: Tesla solar minimum charging power
+        unique_id: tesla_solar_minimum_charging_power
+        unit_of_measurement: W
+        device_class: power
+        state: >
+          {{ ((states('input_number.tesla_solar_min_amps') | float(5)) *
+              (states('sensor.tesla_solar_watts_per_amp') | float(660))) | round(0) }}
+      - name: Tesla solar desired charging amps
+        unique_id: tesla_solar_desired_charging_amps
+        unit_of_measurement: A
+        icon: mdi:current-ac
+        availability: "{{ is_number(states('sensor.tesla_solar_priority_available_charging_power')) }}"
+        state: >
+          {% set available = states('sensor.tesla_solar_available_charging_power') | float(0) %}
+          {% set priority_available = states('sensor.tesla_solar_priority_available_charging_power') | float(0) %}
+          {% set watts_per_amp = states('sensor.tesla_solar_watts_per_amp') | float(660) %}
+          {% set min_amps = states('input_number.tesla_solar_min_amps') | int(5) %}
+          {% set max_amps = [states('input_number.tesla_solar_max_amps') | int(12), 12] | min %}
+          {% set economic_start = states('input_number.tesla_solar_start_export_economic_w') | float(2500) %}
+          {% if not is_state('binary_sensor.deye_baterie_permite_consumatori_flexibili', 'on') %}
+            0
+          {% elif is_state('switch.salavat_t3_charger', 'on') and
+                is_state('binary_sensor.salavat_t3_charging', 'on') %}
+            {% set target = (available / watts_per_amp) | int(0) %}
+            {{ [[target, min_amps] | max, max_amps] | min }}
+          {% elif priority_available < economic_start %}
+            0
+          {% else %}
+            {% set target = (priority_available / watts_per_amp) | int(0) %}
+            {{ [[target, min_amps] | max, max_amps] | min }}
+          {% endif %}
+  - binary_sensor:
+      - name: Tesla solar polling wanted
+        unique_id: tesla_solar_polling_wanted
+        icon: mdi:wifi-refresh
+        state: >
+          {% set margin = states('input_number.tesla_solar_polling_start_margin_w') | float(1200) %}
+          {% set available = states('sensor.tesla_solar_priority_available_charging_power') | float(0) %}
+          {% set start_threshold = states('input_number.tesla_solar_start_export_economic_w') | float(2500) %}
+          {{
+            is_state('input_boolean.tesla_solar_charging_enabled', 'on')
+            and is_state('input_boolean.tesla_manual_charge_override', 'off')
+            and is_state('binary_sensor.salavat_t3_charger', 'on')
+            and (
+              is_state('switch.salavat_t3_charger', 'on')
+              or is_state('binary_sensor.salavat_t3_charging', 'on')
+              or (
+                is_state('sun.sun', 'above_horizon')
+                and is_state('binary_sensor.deye_baterie_permite_consumatori_flexibili', 'on')
+                and available >= (start_threshold - margin)
+              )
+            )
+          }}
+      - name: Tesla solar can charge
+        unique_id: tesla_solar_can_charge
+        icon: mdi:ev-station
+        state: >
+          {{ is_state('input_boolean.tesla_solar_charging_enabled', 'on')
+             and is_state('input_boolean.tesla_manual_charge_override', 'off')
+             and is_state('binary_sensor.deye_baterie_permite_consumatori_flexibili', 'on')
+             and is_state('binary_sensor.salavat_t3_charger', 'on')
+             and (states('sensor.tesla_solar_desired_charging_amps') | int(0)) >=
+                 (states('input_number.tesla_solar_min_amps') | int(5)) }}
+      - name: Tesla solar should stop charging
+        unique_id: tesla_solar_should_stop_charging
+        icon: mdi:ev-station-off
+        delay_on: "00:00:45"
+        state: >
+          {{ is_state('input_boolean.tesla_solar_charging_enabled', 'on')
+             and is_state('input_boolean.tesla_manual_charge_override', 'off')
+             and is_state('switch.salavat_t3_charger', 'on')
+             and (not is_state('binary_sensor.deye_baterie_permite_consumatori_flexibili', 'on')
+                  or (states('sensor.tesla_solar_priority_available_charging_power') | float(0)) <
+                     (states('input_number.tesla_solar_start_export_economic_w') | float(2500))) }}
+      - name: Tesla solar boiler should yield
+        unique_id: tesla_solar_boiler_should_yield
+        icon: mdi:water-boiler-alert
+        state: >
+          {{ is_state('input_boolean.tesla_solar_charging_enabled', 'on')
+             and is_state('input_boolean.tesla_manual_charge_override', 'off')
+             and is_state('binary_sensor.salavat_t3_charger', 'on')
+             and (states('sensor.tesla_solar_boiler_priority_power') | float(0)) > 0
+             and (
+               is_state('switch.salavat_t3_charger', 'on')
+               or (states('sensor.tesla_solar_priority_available_charging_power') | float(0)) >=
+                  (states('input_number.tesla_solar_start_export_economic_w') | float(2500))
+             ) }}
+
+script:
+  tesla_solar_release_boiler_power:
+    alias: Tesla solar release boiler power
+    mode: restart
+    sequence:
+      - condition: state
+        entity_id: binary_sensor.tesla_solar_boiler_should_yield
+        state: "on"
+      - variables:
+          boiler_entity: "{{ states('input_text.ariston_boiler_entity_id') }}"
+          boost_switch: "{{ states('input_text.ariston_boiler_boost_switch_entity_id') }}"
+          power_switch: "{{ states('input_text.ariston_boiler_power_switch_entity_id') }}"
+          normal_temp: "{{ states('input_number.ariston_normal_temperature') | float(55) }}"
+      - if:
+          - condition: template
+            value_template: >
+              {{ boost_switch.startswith('switch.')
+                 and states(boost_switch) not in ['unknown', 'unavailable', 'none', 'None', ''] }}
+        then:
+          - service: switch.turn_off
+            target:
+              entity_id: "{{ boost_switch }}"
+      - if:
+          - condition: template
+            value_template: >
+              {{ boiler_entity.startswith('water_heater.')
+                 and states(boiler_entity) not in ['unknown', 'unavailable', 'none', 'None', ''] }}
+        then:
+          - service: water_heater.set_temperature
+            target:
+              entity_id: "{{ boiler_entity }}"
+            data:
+              temperature: "{{ normal_temp }}"
+      - if:
+          - condition: template
+            value_template: >
+              {{ power_switch.startswith('switch.')
+                 and states(power_switch) not in ['unknown', 'unavailable', 'none', 'None', ''] }}
+        then:
+          - service: switch.turn_off
+            target:
+              entity_id: "{{ power_switch }}"
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.ariston_solar_boost_active
+      - service: logbook.log
+        data:
+          name: Tesla solar charging
+          message: Boiler power released for Tesla solar charging.
+          entity_id: switch.salavat_t3_charger
+
+  tesla_solar_apply_charging_amps:
+    alias: Tesla solar apply charging amps
+    mode: restart
+    sequence:
+      - if:
+          - condition: state
+            entity_id: binary_sensor.tesla_solar_boiler_should_yield
+            state: "on"
+        then:
+          - service: script.tesla_solar_release_boiler_power
+          - delay: "00:00:05"
+      - variables:
+          desired_amps: "{{ states('sensor.tesla_solar_desired_charging_amps') | int(0) }}"
+          current_amps: "{{ states('number.salavat_t3_charging_amps') | int(0) }}"
+          min_amps: "{{ states('input_number.tesla_solar_min_amps') | int(5) }}"
+      - condition: state
+        entity_id: input_boolean.tesla_solar_charging_enabled
+        state: "on"
+      - condition: state
+        entity_id: input_boolean.tesla_manual_charge_override
+        state: "off"
+      - condition: state
+        entity_id: binary_sensor.salavat_t3_charger
+        state: "on"
+      - condition: template
+        value_template: "{{ desired_amps >= min_amps and desired_amps != current_amps }}"
+      - service: number.set_value
+        target:
+          entity_id: number.salavat_t3_charging_amps
+        data:
+          value: "{{ desired_amps }}"
+      - if:
+          - condition: template
+            value_template: "{{ desired_amps | int(0) > current_amps | int(0) }}"
+        then:
+          - service: input_datetime.set_datetime
+            target:
+              entity_id: input_datetime.tesla_solar_last_amp_increase
+            data:
+              datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+automation:
+  - id: tesla_solar_manage_polling_on
+    alias: Tesla solar manage polling on
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.tesla_solar_polling_wanted
+        to: "on"
+        for: "00:02:00"
+      - platform: state
+        entity_id:
+          - switch.salavat_t3_charger
+          - binary_sensor.salavat_t3_charging
+        to: "on"
+      - platform: homeassistant
+        event: start
+    condition:
+      - condition: state
+        entity_id: binary_sensor.tesla_solar_polling_wanted
+        state: "on"
+      - condition: state
+        entity_id: switch.salavat_t3_polling
+        state: "off"
+    action:
+      - service: switch.turn_on
+        target:
+          entity_id: switch.salavat_t3_polling
+
+  - id: tesla_solar_manage_polling_off
+    alias: Tesla solar manage polling off
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.tesla_solar_polling_wanted
+        to: "off"
+        for: "00:15:00"
+      - platform: state
+        entity_id: input_boolean.tesla_solar_charging_enabled
+        to: "off"
+        for: "00:02:00"
+    condition:
+      - condition: state
+        entity_id: switch.salavat_t3_charger
+        state: "off"
+      - condition: state
+        entity_id: binary_sensor.salavat_t3_charging
+        state: "off"
+      - condition: state
+        entity_id: switch.salavat_t3_polling
+        state: "on"
+    action:
+      - service: switch.turn_off
+        target:
+          entity_id: switch.salavat_t3_polling
+
+  - id: tesla_solar_start_charging
+    alias: Tesla solar start charging
+    mode: single
+    trigger:
+      - platform: template
+        value_template: >
+          {{ is_state('input_boolean.tesla_solar_charging_enabled', 'on')
+             and is_state('input_boolean.tesla_manual_charge_override', 'off')
+             and is_state('binary_sensor.salavat_t3_charger', 'on')
+             and is_state('switch.salavat_t3_charger', 'off')
+             and (states('sensor.tesla_solar_priority_available_charging_power') | float(0)) >=
+                 (states('input_number.tesla_solar_start_export_economic_w') | float(2500))
+             and (states('sensor.tesla_solar_desired_charging_amps') | int(0)) >=
+                 (states('input_number.tesla_solar_min_amps') | int(5)) }}
+        for: "00:05:00"
+    condition:
+      - condition: state
+        entity_id: binary_sensor.tesla_solar_polling_wanted
+        state: "on"
+    action:
+      - service: script.tesla_solar_release_boiler_power
+      - delay: "00:00:05"
+      - service: button.press
+        target:
+          entity_id: button.salavat_t3_wake_up
+      - delay: "00:00:10"
+      - service: script.tesla_solar_apply_charging_amps
+      - delay: "00:00:03"
+      - service: switch.turn_on
+        target:
+          entity_id: switch.salavat_t3_charger
+
+  - id: tesla_solar_adjust_charging_amps
+    alias: Tesla solar adjust charging amps
+    mode: single
+    trigger:
+      - platform: time_pattern
+        minutes: "/2"
+    condition:
+      - condition: state
+        entity_id: input_boolean.tesla_solar_charging_enabled
+        state: "on"
+      - condition: state
+        entity_id: input_boolean.tesla_manual_charge_override
+        state: "off"
+      - condition: state
+        entity_id: binary_sensor.salavat_t3_charger
+        state: "on"
+      - condition: state
+        entity_id: switch.salavat_t3_charger
+        state: "on"
+      - condition: template
+        value_template: >
+          {{ (states('sensor.tesla_solar_desired_charging_amps') | int(0)) !=
+             (states('number.salavat_t3_charging_amps') | int(0)) }}
+    action:
+      - service: script.tesla_solar_apply_charging_amps
+
+  - id: tesla_solar_release_boiler_while_charging
+    alias: Tesla solar release boiler while charging
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.tesla_solar_boiler_should_yield
+        to: "on"
+        for: "00:01:00"
+      - platform: time_pattern
+        minutes: "/2"
+    condition:
+      - condition: state
+        entity_id: binary_sensor.tesla_solar_boiler_should_yield
+        state: "on"
+    action:
+      - service: script.tesla_solar_release_boiler_power
+
+  - id: tesla_manual_charge_override_from_charger
+    alias: Tesla manual charge override from charger
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id: switch.salavat_t3_charger
+        from: "off"
+        to: "on"
+    condition:
+      - condition: template
+        value_template: "{{ trigger.to_state.context.user_id is not none }}"
+    action:
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.tesla_manual_charge_override
+      - service: number.set_value
+        target:
+          entity_id: number.salavat_t3_charging_amps
+        data:
+          value: "{{ [states('input_number.tesla_solar_max_amps') | int(12), 12] | min }}"
+      - service: logbook.log
+        data:
+          name: Tesla charging
+          message: Manual charger press detected. Solar automation is paused and charging amps were set to max.
+          entity_id: switch.salavat_t3_charger
+
+  - id: tesla_manual_charge_override_clear
+    alias: Tesla manual charge override clear
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id: switch.salavat_t3_charger
+        to: "off"
+        for: "00:02:00"
+      - platform: state
+        entity_id: input_boolean.tesla_manual_charge_override
+        to: "off"
+    action:
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.tesla_manual_charge_override
+
+  - id: tesla_solar_enforce_max_amps
+    alias: Tesla solar enforce max amps
+    mode: single
+    trigger:
+      - platform: homeassistant
+        event: start
+      - platform: state
+        entity_id: input_number.tesla_solar_max_amps
+    action:
+      - if:
+          - condition: template
+            value_template: "{{ states('input_number.tesla_solar_max_amps') | int(12) > 12 }}"
+        then:
+          - service: input_number.set_value
+            target:
+              entity_id: input_number.tesla_solar_max_amps
+            data:
+              value: 12
+      - if:
+          - condition: template
+            value_template: >
+              {{ is_state('input_boolean.tesla_solar_charging_enabled', 'on')
+                 and (states('number.salavat_t3_charging_amps') | int(0)) > 12 }}
+        then:
+          - service: number.set_value
+            target:
+              entity_id: number.salavat_t3_charging_amps
+            data:
+              value: 12
+
+  - id: tesla_solar_stop_charging
+    alias: Tesla solar stop charging
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.tesla_solar_should_stop_charging
+        to: "on"
+        for: "00:00:30"
+    action:
+      - service: switch.turn_off
+        target:
+          entity_id: switch.salavat_t3_charger
+
+  - id: tesla_solar_disable_stops_charging
+    alias: Tesla solar disable stops charging
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: input_boolean.tesla_solar_charging_enabled
+        to: "off"
+    condition:
+      - condition: state
+        entity_id: switch.salavat_t3_charger
+        state: "on"
+    action:
+      - service: switch.turn_off
+        target:
+          entity_id: switch.salavat_t3_charger
