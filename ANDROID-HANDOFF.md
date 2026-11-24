@@ -56,7 +56,14 @@ Variante respinse fara decizia proprietarului:
   La prima conectare pagina arata un QR si un link `otpauth://...` (aplicatia de
   autentificare): deschide-l extern cu `Intent.ACTION_VIEW`, iar daca nu exista aplicatie,
   arata un Toast. Butonul `Copiaza` foloseste `navigator.clipboard.writeText`.
-- Rute hash (noi): `#energie`, `#costuri`, `#politica`, `#dispozitive`, `#automatizari`,
+- Interfata Nova (2026-11-10) foloseste un canvas WebGL de fundal, View Transitions si
+  `backdrop-filter`: pastreaza accelerarea hardware a WebView-ului (implicita) si nu seta
+  `LAYER_TYPE_SOFTWARE`. Paleta de comenzi este un `[role=dialog]` care se inchide cu
+  Escape trimis pe `window`, deci scriptul pentru butonul Inapoi de mai jos o acopera.
+  Tema implicita urmeaza sistemul (`prefers-color-scheme`): seteaza
+  `WebSettingsCompat.setAlgorithmicDarkeningAllowed(settings, false)` ca WebView-ul sa nu
+  intunece el pagina.
+- Rute hash (noi): `#energie`, `#costuri`, `#politica`, `#tesla`, `#dispozitive`, `#automatizari`,
   `#setari`, `#jurnal` (doar Admin). Acasa = `/casa/` fara hash. Inapoi in istoricul
   WebView navigheaza intre pagini.
 
@@ -72,6 +79,10 @@ Le ofera WebView-ul; verifica fiecare manual, pe date sintetice (vezi Testare).
 - Costuri si prognoza: bilant, consum pe zile, prognoza 6 zile, tarife (Admin),
   export CSV (cere suport nativ, vezi mai jos).
 - Politica Energie: vizualizare, editare cu revizie (Admin), reluare control dispozitiv.
+- Aranjare dispozitive (`Aranjeaza`): tragere cu degetul de maner (`touch-action: none`),
+  ordinea se salveaza pe server per cont. Nu intercepta gesturile de tragere in shell.
+- Tesla (`#tesla`): doar citire (baterie, temperaturi, kilometraj, incarcare, locatie).
+  Linkul `Deschide harta` este extern (openstreetmap.org): deschide-l in Custom Tab.
 - Dispozitive: inventar, filtre nivel/camera, cautare. Automatizari: lista, regula noua (Admin).
 - Setari: cont, tema, mod Admin, parametri baterie, roluri utilizatori. Jurnal (Admin).
 - Bara de sus: cautare rapida, tema, stare HA, pauza globala (killswitch, cu confirmare),
@@ -163,7 +174,9 @@ widgeturi si tile-uri.
   doar `https://salavat.home.ro/casa/`, fara cleartext.
 - Mock-ul nu verifica Origin/CSRF; productia da. In productie testeaza doar: login HA
   (credentialele le introduce proprietarul, niciodata agentul), navigare, citire,
-  Inapoi, tema, deconectare. Nicio comanda (comutatoare, temperatura, volum, pauza
+  Inapoi, tema, deconectare. ATENTIE: din 2026-11-10 intrerupatoarele de LUMINA trimit
+  comanda la prima apasare, fara dialog de confirmare; nu le atinge in productie.
+  Nicio comanda (comutatoare, temperatura, volum, pauza
   globala, politica, reguli) fara cererea explicita a proprietarului. Nu testa alarma,
   Tesla sau releele.
 - Lista manuala: fiecare functie din sectiunea Paritate, latimi 360/390/412 dp, tema

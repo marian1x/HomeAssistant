@@ -15,17 +15,26 @@ from homeassistant.util import dt as dt_util
 from .const import DOMAIN, KILL, LEGACY, DEVICES
 from .schema import DEFAULTS, FIELDS, validate
 from .model import next_resume, plan, winter
-from .quota import at_home, counters, command_allowed, read_allowed
+from .quota import at_home, counters, command_allowed, read_allowed, ev_mode, load_step
 from .tesla import refresh as refresh_tesla
+from . import evlimit
+from .tesla_log import Journal
+from .fleet import Fleet
+from .bms_ble import BleReader
+from . import coldcharge
 from . import pricing
 
 _LOGGER = logging.getLogger(__name__)
+GRID_CHARGE = 'switch.deye_battery_grid_charging'
+BATTERY_TEMP = 'sensor.deye_battery_temperature'
 SOURCE = {
     'pv': 'sensor.productie_solara_curenta', 'load': 'sensor.consum_total_curent',
     'grid': 'sensor.deye_grid_power', 'battery': 'sensor.deye_battery_power',
     'soc': 'sensor.deye_battery', 'outside': 'weather.forecast_home',
     'forecast': 'sensor.prognoza_solar_energy_production_today_remaining',
 }
+# Per-phase house load: a car charger moves all three phases together.
+LOAD_PHASES = ('sensor.deye_load_l1_power', 'sensor.deye_load_l2_power', 'sensor.deye_load_l3_power')
 
 
 class Policy:
@@ -40,6 +49,11 @@ class Policy:
         self.listener = None
         self.contexts = {}
         self.before = {}
+        self.load_samples = []
+        self.journal = None
+        self.fleet = None
+        self.bms = None
+        self._cold_status = {}
 
     async def load(self):
         saved = await self.store.async_load() or {}
@@ -118,6 +132,110 @@ class Policy:
         m.pop('expected', None)
         await self.save()
 
+    async def set_ev_limit(self, soc):
+        if not evlimit.valid(soc):
+            raise ValueError('Limita trebuie sa fie intre 20 si 100%')
+        async with self.lock:
+            previous = self.memory.get('ev_limit') or {}
+            self.memory['ev_limit'] = {'soc': soc, 'pending_native': True, 'set_at': time.time(),
+                                       'stopped': bool(previous.get('stopped')), 'status': 'Se aplica la urmatoarea citire'}
+            self.status['ev_limit'] = dict(self.memory['ev_limit'])
+            await self.save()
+        async_dispatcher_send(self.hass, DOMAIN)
+
+    async def _set_grid_charge(self, on):
+        context = Context()
+        self.contexts[context.id] = time.time()
+        self.contexts = {k: t for k, t in self.contexts.items() if time.time() - t < 600}
+        await self.hass.services.async_call('switch', 'turn_on' if on else 'turn_off',
+                                            {'entity_id': GRID_CHARGE}, blocking=True, context=context)
+        _LOGGER.info('Cold-charge grid injection %s', 'ON' if on else 'OFF')
+
+    async def cold_charge(self, o):
+        """Enable grid charging only, before sunrise, when the pack is below freezing, so the
+        inverter drives the self-heater. Writes only on transition; never raises SOC/program
+        targets (the Deye program SOC still bounds any grid charge)."""
+        c = self.config
+        mem = self.memory.setdefault('cold_charge', {'active': False, 'last_write': 0.0})
+        temp = self.number(BATTERY_TEMP, c['power_stale_seconds'])
+        sun = self.state('sun.sun')
+        next_rising = None
+        if sun:
+            try:
+                raw = sun.attributes.get('next_rising')
+                next_rising = dt_util.parse_datetime(raw).timestamp() if raw else None
+            except (TypeError, ValueError, AttributeError):
+                next_rising = None
+        should, reason = coldcharge.decide(mem.get('active', False), temp, time.time(), next_rising, o.get('pv'), c)
+        if o['kill']:
+            should, reason = False, 'pauza globala'
+        elif o['conflict']:
+            should, reason = False, 'conflict cu automatizari vechi'
+        switch = self.state(GRID_CHARGE)
+        available = bool(switch and switch.state in ('on', 'off'))
+        cooldown_ok = time.time() - mem.get('last_write', 0) >= c['command_seconds']
+        if should and not mem.get('active'):
+            if available and switch.state == 'off' and cooldown_ok:
+                await self._set_grid_charge(True)
+                mem.update(active=True, since=time.time(), last_write=time.time())
+        elif not should and mem.get('active'):
+            if available and switch.state == 'on' and cooldown_ok:
+                await self._set_grid_charge(False)
+                mem['last_write'] = time.time()
+            mem.update(active=False, since=time.time())
+        self._cold_status = {'enabled': c['cold_charge_enabled'], 'active': mem.get('active', False),
+                             'reason': reason, 'battery_temp': temp,
+                             'grid_charge_switch': switch.state if available else None}
+
+    async def enforce_ev_limit(self, o):
+        """Owner charge limit; commands only on fresh data from an awake car, never wakes it."""
+        lim, c = self.memory.get('ev_limit'), self.config
+        if not lim or not lim.get('soc') or o['kill'] or not c['enabled']:
+            return False
+        native = self.number(c['ev_limit'])
+        if lim.get('pending_native') and native == max(evlimit.NATIVE_FLOOR, lim['soc']):
+            lim.update(pending_native=False, status='Limita activa')
+        charging = self.state(c['ev_charging'])
+        switch = self.state(c['ev_switch'])
+        action = evlimit.decide(lim, o, self.number(c['ev_soc']), native,
+                                bool(charging and charging.state == 'on'), bool(switch and switch.state == 'on'))
+        if not action:
+            return False
+        q = counters(self.memory.setdefault('tesla_quota', {}), dt_util.now())
+        stop = action[0] == 'stop'
+        if not o['ev_polling_protected'] or not o['ev_awake'] or not o['ev_fresh'] or q.get('backoff_until', 0) > time.time():
+            lim['status'] = 'Asteapta o citire recenta; masina nu este trezita'
+            return False
+        emergency = stop and not command_allowed(c, q)
+        if time.time() - lim.get('last_command', 0) < c['ev_command_seconds'] or not command_allowed(c, q, emergency):
+            return False
+        q.update(commands_day=q['commands_day']+1, commands_month=q['commands_month']+1)
+        if emergency:
+            q.update(emergency_day=q['emergency_day']+1, emergency_month=q['emergency_month']+1)
+        context = Context()
+        self.contexts[context.id] = time.time()
+        lim['last_command'] = time.time()
+        domain, service, entity, data = {
+            'set_limit': ('number', 'set_value', c['ev_limit'], {'value': action[1]}),
+            'stop': ('switch', 'turn_off', c['ev_switch'], {}),
+            'start': ('switch', 'turn_on', c['ev_switch'], {})}[action[0]]
+        try:
+            await self.hass.services.async_call(domain, service, {'entity_id': entity, **data}, blocking=True, context=context)
+        except Exception:
+            q.update(backoff_until=time.time()+c['ev_error_backoff_minutes']*60, status='Comanda limita nereusita; fara retry rapid')
+            lim['status'] = 'Comanda nereusita; reincerc dupa pauza'
+            await self.save()
+            return False
+        if action[0] == 'set_limit':
+            lim.update(pending_native=False, status='Limita setata in masina: %d%%' % action[1])
+        elif stop:
+            lim.update(stopped=True, status='Incarcare oprita la %d%%' % lim['soc'])
+        else:
+            lim.update(stopped=False, status='Incarcare reluata sub %d%%' % lim['soc'])
+        self.before['tesla'] = self.memory['devices']['tesla']['fingerprint'] = self.fingerprint('tesla')
+        await self.save()
+        return True
+
     async def resume(self, key):
         async with self.lock:
             self.memory['devices'][key].update(manual_until=0, reason='', owned=False)
@@ -179,6 +297,26 @@ class Policy:
         await self.started()
 
     async def started(self, _event=None):
+        try:
+            self.journal = Journal(self.hass, self)
+            await self.journal.start()
+        except Exception as error:  # the journal never blocks energy control
+            _LOGGER.error('Tesla journal unavailable: %s', type(error).__name__)
+            self.journal = None
+        if self.journal:
+            try:
+                self.fleet = Fleet(self.hass, self)
+                await self.fleet.start(self.journal.telemetry_saved)
+                self.journal.fleet = self.fleet
+            except Exception as error:  # Fleet Telemetry is optional; sparse reads remain
+                _LOGGER.error('Fleet Telemetry consumer unavailable: %s', type(error).__name__)
+                self.fleet = None
+        try:
+            self.bms = BleReader(self.hass, self)
+            await self.bms.start()
+        except Exception as error:  # the BLE reader never blocks energy control
+            _LOGGER.error('Battery BLE reader unavailable: %s', type(error).__name__)
+            self.bms = None
         for key in DEVICES:
             fp = self.fingerprint(key)
             self.before[key] = fp
@@ -197,6 +335,22 @@ class Policy:
     async def stop(self):
         for unsub in self.unsub:
             unsub()
+        if self.fleet:
+            await self.fleet.stop()
+            if self.journal:
+                await self.journal.save_telemetry(self.fleet.saved())
+        if self.journal:
+            await self.journal.stop()
+        if getattr(self, 'bms', None):
+            await self.bms.stop()
+        if self.memory.get('cold_charge', {}).get('active'):
+            switch = self.state(GRID_CHARGE)
+            if switch and switch.state == 'on':
+                try:
+                    await self._set_grid_charge(False)
+                except Exception:
+                    pass
+            self.memory['cold_charge']['active'] = False
         await self.save()
 
     async def on_service(self, event):
@@ -251,6 +405,13 @@ class Policy:
                 continue
             await self.hold(key)
 
+    def sample_load(self):
+        now = time.time()
+        phases = [self.kw(e) for e in LOAD_PHASES]
+        self.load_samples = [s for s in self.load_samples if now - s[0] <= 900]
+        if all(p is not None for p in phases):
+            self.load_samples.append((now, *phases))
+
     def observe(self):
         c = self.config
         pv, load, grid, bp = [self.kw(SOURCE[key]) for key in ('pv', 'load', 'grid', 'battery')]
@@ -296,6 +457,9 @@ class Policy:
         o['ev_complete'] = bool(plug and plug.attributes.get('charging_state') == 'Complete')
         native_limit = self.number(c['ev_limit'])
         o['ev_effective_target'] = min(c['ev_target_soc'], native_limit) if native_limit is not None else c['ev_target_soc']
+        owner_limit = (self.memory.get('ev_limit') or {}).get('soc')
+        if owner_limit:
+            o['ev_effective_target'] = min(o['ev_effective_target'], owner_limit)
         o['ev_soc'] = self.number(c['ev_soc'], c['ev_data_age_seconds'])
         o['ev_on'] = self.available(c['ev_switch']) and self.state(c['ev_switch']).state == 'on'
         o['ev_requested_amps'] = self.number(c['ev_amps'], c['ev_data_age_seconds']) or c['ev_min_amps']
@@ -328,6 +492,16 @@ class Policy:
             o['ev_fresh'] = False
         online = self.state('binary_sensor.salavat_t3_online')
         o['ev_awake'] = bool(online and online.attributes.get('state') == 'online')
+        shift, charging = self.state('sensor.salavat_t3_shift_state'), self.state(c['ev_charging'])
+        # A live Fleet Telemetry stream knows the gear now; the integration only at its last read.
+        fleet = getattr(self, 'fleet', None)
+        o['telemetry_live'] = bool(fleet and fleet.live())
+        gear = fleet.gear() if o['telemetry_live'] else None
+        o['ev_mode'] = ev_mode(bool(online and online.state == 'on') or gear is not None, gear or (shift.state if shift else None),
+                               bool(charging and charging.state == 'on'), o['ev_connected'], o['ev_home'],
+                               bool(tracker and tracker.state not in ('unknown', 'unavailable')))
+        o['ev_limit_near'] = evlimit.near(self.memory.get('ev_limit'), o, self.number(c['ev_soc']))
+        o['load_step'] = load_step(self.load_samples, time.time(), c['ev_step_kw'], c['ev_step_phase_kw']) if o['power_ok'] else 0
         o['ev_control_ready'] = o['ev_polling_protected'] and o['ev_fresh'] and o['ev_awake'] and command_allowed(c, q) and read_allowed(c, q) and q.get('backoff_until', 0) <= time.time()
         voltage = self.number('sensor.deye_battery_voltage')
         battery_state = self.state(SOURCE['soc'])
@@ -349,9 +523,13 @@ class Policy:
                     price = self.rate()[field]
                     if self.available(helper) and self.number(helper) != price:
                         await self.hass.services.async_call('input_number', 'set_value', {'entity_id':helper,'value':price}, blocking=True)
+                self.sample_load()
                 o = self.observe()
                 await refresh_tesla(self, o)
                 o = self.observe()
+                if await self.enforce_ev_limit(o):
+                    o = self.observe()
+                await self.cold_charge(o)
                 decision = plan(self.config, o, dt_util.now())
                 self.memory['recharge_lock'] = decision['recharge_lock']
                 active = self.config['enabled'] and not o['kill'] and not o['conflict']
@@ -364,8 +542,15 @@ class Policy:
                 self.status = decision | {'updated_at': dt_util.now().isoformat(), 'power_valid': o['power_ok'], 'outside_c': o['outside'], 'battery_soc': o['soc'],
                                          'pv_kw': o['pv'], 'import_kw': o['import'], 'export_kw': o['export'], 'forecast_remaining_kwh': o['forecast_remaining'],
                                          'ac_power_estimated': True, 'last_error': ''}
-                self.status['tesla_quota'] = dict(self.memory.get('tesla_quota', {})) | {'polling_protected': o['ev_polling_protected'], 'awake': o['ev_awake'], 'at_home': o['ev_home']}
+                self.status['tesla_quota'] = dict(self.memory.get('tesla_quota', {})) | {'polling_protected': o['ev_polling_protected'], 'awake': o['ev_awake'], 'at_home': o['ev_home'], 'mode': o['ev_mode'], 'load_step': o['load_step']}
                 self.status['battery_reserve_soc'] = o['reserve_soc']
+                self.status['ev_limit'] = dict(self.memory.get('ev_limit') or {})
+                self.status['cold_charge'] = dict(self._cold_status)
+                if getattr(self, 'fleet', None):
+                    t = self.fleet.snapshot()
+                    self.status['telemetry'] = {k: t[k] for k in ('live', 'status', 'last_message', 'signals_day', 'signals_month', 'stopped', 'config_exp')} | {
+                        'cost_month_usd': t['costs']['stream_month_usd'], 'api_month_usd': t['costs']['api_month_usd'],
+                        'stream_allowed_usd': t['costs']['stream_allowed_usd'], 'trial': t['costs']['trial']}
                 await self.save()
             except Exception as error:
                 self.status = self.status | {'phase': 'Eroare, control suspendat', 'last_error': type(error).__name__, 'updated_at': dt_util.now().isoformat()}

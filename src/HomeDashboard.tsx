@@ -1,12 +1,18 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { ArrowUpRight, Car, Check, CloudSun, Flame, House, LayoutGrid, Lightbulb, Plug, Search, SlidersHorizontal, Sun, Thermometer, Volume2, Wind, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ArrowUpRight, Car, Check, CloudSun, Flame, House, LayoutGrid, Lightbulb, Plug, Search, SlidersHorizontal, Sun, Thermometer, Volume2, Wind, X } from 'lucide-react';
 import { type Device, type Snapshot, type State, controllable, controlCategory, deviceReading, format, houseFloors, houseRooms, inLocation, valid } from './model';
 import EnergyFlow from './EnergyFlow';
+import { energyFlow } from './energy-flow';
+import { brief } from './brief';
+import { Num } from './motion';
+import { type Layout, arrange, groupOrder, move, moveGroup, uses } from './arrange';
+import { ArrangeBar, Sortable, useSortable } from './ArrangeMode';
 import './home-control.css';
 
 type Props={data:Snapshot|null;devices:Device[];history:any;canControl:boolean;control:(state:State)=>ReactNode;
   temperature:(state:State,target:number)=>void;brightness:(state:State,percent:number)=>void;navigate:(tab:string,area?:string,floor?:string)=>void;
-  room:string;floor:string;onLocation:(floor:string,room:string)=>void};
+  room:string;floor:string;onLocation:(floor:string,room:string)=>void;
+  layout:Layout;onLayout:(change:Partial<Layout>)=>void;onArrange:()=>void};
 const groups=[{id:'lights',name:'Iluminat',icon:Lightbulb},{id:'climate',name:'Climatizare',icon:Wind},{id:'water',name:'Apa calda',icon:Flame},
   {id:'power',name:'Prize si relee',icon:Plug},{id:'media',name:'Media',icon:Volume2},{id:'mobility',name:'Mobilitate',icon:Car}];
 
@@ -32,7 +38,8 @@ function DeviceCommand({device:d,control,canControl,temperature,brightness}:{dev
   </article>;
 }
 
-export default function HomeDashboard({data,devices,canControl,control,temperature,brightness,navigate,room,floor,onLocation}:Props) {
+export default function HomeDashboard({data,devices,canControl,control,temperature,brightness,navigate,room,floor,onLocation,layout,onLayout,onArrange}:Props) {
+  const [arranging,setArranging]=useState(false);
   const [category,setCategory]=useState('all'),[query,setQuery]=useState('');
   const [showOffline,setShowOffline]=useState(false);
   const [now,setNow]=useState(()=>new Date());
@@ -46,16 +53,35 @@ export default function HomeDashboard({data,devices,canControl,control,temperatu
   // Counts ignore the type filter so a room never disappears while a category is selected.
   const placeCount=(f:string,r:string)=>devices.filter(d=>inLocation(d,f,r)&&controllable(d)&&(showOffline||valid(d.primary))).length;
   const roomTabs=['all',...rooms.filter(r=>r===room||placeCount(floor,r)>0)];
+  // The user's order (manual, most used or default) applies to groups and to cards.
+  const ordered=groupOrder(layout).map(id=>groups.find(g=>g.id===id)!).filter(Boolean);
+  const sorted=arrange(shown,layout);
+  const sorter=useSortable((ids,id,to)=>onLayout({sort:'manual',order:move(layout.sort==='manual'?layout.order:arrange(devices,layout).map(d=>d.id),ids,id,to)}));
+  const toggleArrange=()=>{if(!arranging)onArrange();setArranging(!arranging);};
+  // "Casa acum": a sentence and a few facts computed from live readings only.
+  const flow=energyFlow(data,devices), summary=brief(flow);
+  const working=(id:string)=>devices.filter(d=>controllable(d)&&valid(d.primary)&&controlCategory(d)===id&&!['off','idle','standby','paused'].includes(d.primary.state)).length;
+  const lit=working('lights'), cooling=working('climate'), ring=2*Math.PI*30;
   return <section className="home-command-center">
-    <header className="home-welcome"><div><span className="eyebrow">CASA SALAVAT</span><h1>{data?'Buna, '+data.user.name.split(' ')[0]+'.':'Bine ai venit acasa.'}</h1></div><div className="home-context"><span>{date}</span><span><CloudSun size={19}/>{format(typeof weather?.attributes.temperature==='number'?weather.attributes.temperature:null)} {weather?.attributes.temperature_unit||'°C'}</span><button className="icon-button" title="Setarile casei" onClick={()=>navigate('settings')}><SlidersHorizontal size={19}/></button></div></header>
+    <header className={'home-welcome tone-'+summary.tone}><div className="home-hello"><span className="eyebrow">CASA SALAVAT</span><h1>{data?'Buna, '+data.user.name.split(' ')[0]+'.':'Bine ai venit acasa.'}</h1>
+      {data&&<p className="home-brief" key={summary.headline}><i aria-hidden="true"/>{summary.headline}</p>}
+      {data&&<div className="home-facts">{lit>0&&<span><Lightbulb size={14}/>{lit} {lit===1?'lumina aprinsa':'lumini aprinse'}</span>}{cooling>0&&<span><Wind size={14}/>{cooling} {cooling===1?'climatizare activa':'climatizari active'}</span>}{flow.solarToday!==null&&<span><Sun size={14}/>Solar azi {format(flow.solarToday,1)} kWh</span>}</div>}
+    </div><div className="home-side">{data&&summary.autarky!==null&&<div className="autarky" role="img" aria-label={'Independenta energetica azi: '+summary.autarky+'%'}><svg viewBox="0 0 72 72" aria-hidden="true"><defs><linearGradient id="autarky-stroke" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stopColor="var(--energy-load)"/><stop offset="1" stopColor="var(--energy-solar)"/></linearGradient></defs><circle cx="36" cy="36" r="30" className="autarky-track"/><circle cx="36" cy="36" r="30" className="autarky-value" strokeDasharray={ring} strokeDashoffset={ring*(1-summary.autarky/100)}/></svg><strong><Num value={summary.autarky} digits={0}/><small>%</small></strong><span>independenta<br/>energetica azi</span></div>}<div className="home-context"><span>{date}</span><span><CloudSun size={19}/>{format(typeof weather?.attributes.temperature==='number'?weather.attributes.temperature:null)} {weather?.attributes.temperature_unit||'°C'}</span><button className="icon-button" title="Setarile casei" onClick={()=>navigate('settings')}><SlidersHorizontal size={19}/></button></div></div></header>
     <EnergyFlow data={data} devices={devices} navigate={navigate}/>
     <section className="room-command-center" aria-label="Controlul camerelor">
-      <header className="room-command-heading"><div><span className="eyebrow">CONTROL DIRECT</span><h2>{room==='all'?(floor==='all'?'Dispozitivele casei':floor):room}</h2><span className="room-device-count">{scoped.length} dispozitive integrate pentru control</span></div><button className="text-button" onClick={()=>navigate('devices',room,floor)}>Inventar dispozitive <ArrowUpRight size={16}/></button></header>
+      <header className="room-command-heading"><div><span className="eyebrow">CONTROL DIRECT</span><h2>{room==='all'?(floor==='all'?'Dispozitivele casei':floor):room}</h2><span className="room-device-count">{scoped.length} dispozitive integrate pentru control</span></div><div className="room-command-actions">{data&&<button className={'button arrange-toggle'+(arranging?' selected':'')} aria-pressed={arranging} onClick={toggleArrange}><ArrowUpDown size={16}/>Aranjeaza</button>}<button className="text-button" onClick={()=>navigate('devices',room,floor)}>Inventar dispozitive <ArrowUpRight size={16}/></button></div></header>
+      {arranging&&<ArrangeBar sort={layout.sort} days={layout.usage_days||30} onSort={sort=>onLayout({sort})} onDone={()=>setArranging(false)}/>}
       <div className="floor-tabs" role="tablist" aria-label="Nivel">{['all',...houseFloors(data)].map(f=><button role="tab" key={f} aria-label={f==='all'?'Toata casa':f} aria-selected={floor===f} onClick={()=>{onLocation(f,'all');setQuery('');}}>{f==='all'?<><House size={15}/>Toata casa</>:f}<small className="tab-count" aria-hidden="true">{placeCount(f,'all')}</small></button>)}</div>
       <div className="room-tabs" role="tablist" aria-label="Camere">{roomTabs.map(r=><button role="tab" key={r} aria-label={r==='all'?'Toate camerele':r} aria-selected={room===r} onClick={()=>{onLocation(floor,r);setQuery('');}}>{r==='all'?'Toate camerele':r}<small className="tab-count" aria-hidden="true">{placeCount(floor,r)}</small></button>)}</div>
-      <label className="home-category-select"><LayoutGrid size={17}/><select aria-label="Tip dispozitiv" value={category} onChange={e=>setCategory(e.target.value)}>{[{id:'all',name:'Toate dispozitivele'},...groups].map(g=><option key={g.id} value={g.id}>{g.name} ({g.id==='all'?scoped.length:counts(g.id)})</option>)}</select></label>
-      <div className="home-control-toolbar"><div className="control-categories" role="tablist" aria-label="Tip dispozitiv">{[{id:'all',name:'Toate',icon:LayoutGrid},...groups].map(g=><button key={g.id} role="tab" aria-selected={category===g.id} onClick={()=>setCategory(g.id)}><g.icon size={16}/>{g.name}<small>{g.id==='all'?scoped.length:counts(g.id)}</small></button>)}</div><div className="home-device-options"><label className="offline-option"><input type="checkbox" checked={showOffline} onChange={e=>setShowOffline(e.target.checked)}/>Indisponibile</label><label className="home-device-search"><Search size={17}/><input type="search" aria-label="Cauta in camera" placeholder="Cauta dispozitiv" value={query} onChange={e=>setQuery(e.target.value)}/>{query&&<button title="Sterge cautarea" onClick={()=>setQuery('')}><X size={15}/></button>}</label></div></div>
-      {groups.filter(g=>category==='all'||g.id===category).map(g=>{const items=shown.filter(d=>controlCategory(d)===g.id);return items.length?<section className="home-device-group" key={g.id} aria-label={g.name}><header><h3><g.icon size={17}/>{g.name}</h3><small>{items.length} dispozitive</small></header><div className="home-device-grid">{items.map(d=><DeviceCommand key={d.id} device={d} control={control} canControl={canControl} temperature={temperature} brightness={brightness}/>)}</div></section>:null;})}
+      <label className="home-category-select"><LayoutGrid size={17}/><select aria-label="Tip dispozitiv" value={category} onChange={e=>setCategory(e.target.value)}>{[{id:'all',name:'Toate dispozitivele'},...ordered].map(g=><option key={g.id} value={g.id}>{g.name} ({g.id==='all'?scoped.length:counts(g.id)})</option>)}</select></label>
+      <div className="home-control-toolbar"><div className="control-categories" role="tablist" aria-label="Tip dispozitiv">{[{id:'all',name:'Toate',icon:LayoutGrid},...ordered].map(g=><button key={g.id} role="tab" aria-selected={category===g.id} onClick={()=>setCategory(g.id)}><g.icon size={16}/>{g.name}<small>{g.id==='all'?scoped.length:counts(g.id)}</small></button>)}</div><div className="home-device-options"><label className="offline-option"><input type="checkbox" checked={showOffline} onChange={e=>setShowOffline(e.target.checked)}/>Indisponibile</label><label className="home-device-search"><Search size={17}/><input type="search" aria-label="Cauta in camera" placeholder="Cauta dispozitiv" value={query} onChange={e=>setQuery(e.target.value)}/>{query&&<button title="Sterge cautarea" onClick={()=>setQuery('')}><X size={15}/></button>}</label></div></div>
+      {ordered.filter(g=>category==='all'||g.id===category).map((g,gi,visibleGroups)=>{const items=sorted.filter(d=>controlCategory(d)===g.id);if(!items.length)return null;
+        const card=(d:Device)=><DeviceCommand key={d.id} device={d} control={control} canControl={canControl&&!arranging} temperature={temperature} brightness={brightness}/>;
+        const ids=items.map(d=>d.id), view=arranging?sorter.preview(g.id,ids):ids, byId=new Map(items.map(d=>[d.id,d]));
+        return <section className={'home-device-group'+(arranging?' arranging':'')} key={g.id} aria-label={g.name}><header><h3><g.icon size={17}/>{g.name}</h3>
+          {arranging&&category==='all'&&<span className="group-steps"><button type="button" aria-label={'Muta grupul '+g.name+' mai sus'} disabled={gi===0} onClick={()=>onLayout({groups:moveGroup(layout,g.id,-1)})}><ArrowUp size={15}/></button><button type="button" aria-label={'Muta grupul '+g.name+' mai jos'} disabled={gi===visibleGroups.length-1} onClick={()=>onLayout({groups:moveGroup(layout,g.id,1)})}><ArrowDown size={15}/></button></span>}
+          <small>{items.length} dispozitive</small></header>
+          <div className="home-device-grid">{arranging?view.map(id=>{const d=byId.get(id)!;return <Sortable key={id} sorter={sorter} scope={g.id} ids={ids} id={id} name={d.name} uses={layout.sort==='usage'?uses(d,layout.usage):null}>{card(d)}</Sortable>;}):items.map(card)}</div></section>;})}
       {!shown.length&&<div className="home-control-empty"><Plug size={24}/><span>{data?'Niciun dispozitiv de control pentru aceasta selectie.':'Autentifica-te pentru dispozitivele casei.'}</span></div>}
     </section>
   </section>;

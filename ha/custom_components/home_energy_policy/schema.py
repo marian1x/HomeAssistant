@@ -54,6 +54,14 @@ field('ev_monitor_enabled', 'Monitorizare Tesla economica', 'quota', True, 'bool
 field('ev_idle_minutes', 'Verificare zi, fara incarcare solara', 'quota', 90, low=30, high=360, unit='min')
 field('ev_active_seconds', 'Citire in timpul incarcarii solare', 'quota', 120, low=120, high=900, unit='s')
 field('ev_night_check_at', 'Singura verificare de noapte', 'quota', '00:00', 'time')
+field('ev_driving_minutes', 'Citire cand masina e in mers', 'quota', 10, low=5, high=60, unit='min')
+field('ev_charging_minutes', 'Citire cand se incarca (fara control solar)', 'quota', 10, low=5, high=60, unit='min')
+field('ev_plugged_minutes', 'Citire cand e conectata, fara incarcare (zi)', 'quota', 30, low=15, high=180, unit='min')
+field('ev_away_minutes', 'Citire cand e parcata departe (zi)', 'quota', 120, low=30, high=480, unit='min')
+field('ev_step_enabled', 'Citire la salt de consum trifazat', 'quota', True, 'boolean')
+field('ev_step_kw', 'Salt total de consum', 'quota', 3, low=2, high=11, step=.1, unit='kW')
+field('ev_step_phase_kw', 'Salt minim pe fiecare faza', 'quota', .8, low=.3, high=4, step=.1, unit='kW')
+field('ev_step_daily', 'Citiri declansate de salturi pe zi', 'quota', 12, low=1, high=40, unit='citiri')
 field('ev_reads_daily', 'Buget cicluri citire pe zi', 'quota', 60, low=1, high=150, unit='cicluri')
 field('ev_reads_monthly', 'Buget cicluri citire pe luna', 'quota', 900, low=10, high=2500, unit='cicluri')
 field('ev_commands_daily', 'Buget comenzi automate pe zi', 'quota', 60, low=5, high=150, unit='comenzi')
@@ -120,6 +128,14 @@ field('whirlpool_boost_summer_c', 'Whirlpool surplus vara', 'boost', 19, low=18,
 field('tcl_boost_kw', 'Putere suplimentara TCL estimata', 'boost', 1.2, low=.3, high=4, step=.1, unit='kW')
 field('whirlpool_boost_kw', 'Putere suplimentara Whirlpool estimata', 'boost', 1.2, low=.3, high=4, step=.1, unit='kW')
 
+# Cold-morning heat assist: enable grid charging only, so the inverter drives the self-heater
+# before sunrise when the pack is below freezing. Owner decision 2026-11-25. No program/SOC
+# writes; the switch is turned on at the start of the window and off at recovery/sunrise/surplus.
+field('cold_charge_enabled', 'Injectie din retea pe frig, inainte de rasarit', 'battery', False, 'boolean')
+field('cold_charge_temp_c', 'Porneste injectia sub', 'battery', 3, low=-10, high=10, step=.5, unit='C')
+field('cold_charge_recover_c', 'Opreste cand bateria atinge', 'battery', 6, low=0, high=15, step=.5, unit='C')
+field('cold_charge_hours_before_sunrise', 'Fereastra inainte de rasarit', 'battery', 3, low=1, high=6, unit='h')
+
 DEFAULTS = {f['key']: f['default'] for f in FIELDS}
 
 
@@ -159,6 +175,8 @@ def validate(raw, base=None):
         result[key] = value
     if not result['base_reserve_soc'] <= result['battery_optional_floor_soc'] < result['battery_resume_soc']:
         raise ValueError('Rezerva de baza <= prag optional < prag de reluare')
+    if result['cold_charge_recover_c'] <= result['cold_charge_temp_c']:
+        raise ValueError('Temperatura de oprire trebuie sa fie peste cea de pornire')
     if not result['winter_cold_c'] <= result['winter_fan3_c'] <= result['winter_fan2_c']:
         raise ValueError('Pragurile de frig trebuie ordonate')
     if result['ev_min_amps'] > result['ev_max_amps'] or result['boiler_solar_c'] < max(result['boiler_winter_c'], result['boiler_summer_c']):

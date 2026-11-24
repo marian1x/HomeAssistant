@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly check for Fleet Telemetry / Mosquitto releases
+
+[Timer]
+OnCalendar=Mon 09:15
+RandomizedDelaySec=30m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

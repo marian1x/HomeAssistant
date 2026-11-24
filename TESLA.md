@@ -23,6 +23,14 @@ Checked on 2026-11-08. No credentials, refresh tokens or private keys belong in 
   it must not fall through to the accounting application. Callback query strings must
   not be recorded in nginx access/error logs.
 
+## Fleet Telemetry (2026-11-25)
+
+Installed on the Pi5 (`FLEET-TELEMETRY.md`): server on TCP 4443, broker, HA consumer, budget guard.
+The proxy add-on's `debug` option was turned off (it could log tokens). The add-on binary cannot
+sign `fleet_telemetry_config`; the config is signed with the official `tesla-jws` (vehicle-command
+v0.4.1) run inside the add-on, so the private key never leaves it. The push itself is pending
+the owner. The published public key equals the proxy key (SHA-256 of DER `fec988f1...1b6d`).
+
 ## Preferred Next Step: Official Tesla Fleet
 
 The old Tesla HTTP Proxy add-on repository states it has been unmaintained since

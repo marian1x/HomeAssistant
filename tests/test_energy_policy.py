@@ -182,3 +182,104 @@ def test_home_zone_requires_actual_coordinates():
 @pytest.mark.parametrize('values', [{'winter_cold_c':15}, {'ev_max_amps':17}, {'max_discharge_kw':8}, {'base_reserve_soc':10}, {'enabled':1}, {'boiler_solar_c':float('nan')}, {'manual_resume_at':'25:00'}, {'winter_months':'13'}, {'secret':'x'}])
 def test_configuration_bounds(values):
     with pytest.raises(ValueError): schema.validate(values)
+
+
+def series(levels, now=1000.0, step=30):
+    """levels: list of (seconds_ago, l1, l2, l3) in kW."""
+    return [(now - ago, a, b, c) for ago, a, b, c in levels]
+
+
+def test_balanced_three_phase_rise_is_a_car_but_single_phase_is_not():
+    now = 1000.0
+    before = [(ago, .5, .4, .6) for ago in range(600, 119, -30)]
+    car = series(before + [(60, 4.2, 4.1, 4.3), (30, 4.2, 4.1, 4.3), (0, 4.2, 4.1, 4.3)], now)
+    assert quota.load_step(car, now) == 1
+    boiler = series(before + [(60, 3.5, .4, .6), (30, 3.5, .4, .6), (0, 3.5, .4, .6)], now)
+    assert quota.load_step(boiler, now) == 0, 'Single-phase load is not a charger'
+    blip = series(before + [(30, 4.2, 4.1, 4.3), (0, .5, .4, .6)], now)
+    assert quota.load_step(blip, now) == 0, 'Must be sustained'
+    stop = series([(ago, 4.2, 4.1, 4.3) for ago in range(600, 119, -30)] + [(60, .5, .4, .6), (0, .5, .4, .6)], now)
+    assert quota.load_step(stop, now) == -1
+    assert quota.load_step(car[-3:], now) == 0, 'Needs a baseline'
+
+
+def test_ev_mode_from_last_known_state():
+    assert quota.ev_mode(True, 'D', False, False, False, True) == 'driving'
+    assert quota.ev_mode(False, 'D', False, False, False, True) == 'away', 'Offline car is not driving'
+    assert quota.ev_mode(True, 'P', True, True, True, True) == 'charging'
+    assert quota.ev_mode(False, 'P', False, True, True, True) == 'plugged'
+    assert quota.ev_mode(False, 'P', False, False, True, True) == 'home'
+    assert quota.ev_mode(False, None, False, False, False, False) == 'unknown'
+
+
+def test_load_step_triggers_a_read_at_night_with_cooldown_and_cap():
+    c, q = config(), quota.counters({}, NOW)
+    night = NOW.replace(hour=20)
+    q['last_poll'] = night.timestamp() - 3600
+    o = observed(sun_up=False, ev_mode='away', load_step=1)
+    assert quota.due(c, q, o, night) == 'step_up'
+    q['step_at'] = night.timestamp() - 60
+    assert not quota.due(c, q, o, night), 'Cooldown after a step read'
+    q['step_at'] = 0
+    q['steps_day'] = c['ev_step_daily']
+    assert not quota.due(c, q, o, night), 'Daily cap on step reads'
+    q['steps_day'] = 0
+    q['last_poll'] = night.timestamp() - 360
+    assert not quota.due(c, q, observed(sun_up=False, ev_mode='charging', load_step=1), night), 'Already known charging'
+    assert quota.due(c, q, observed(sun_up=False, ev_mode='charging', load_step=-1), night) == 'step_down'
+    assert not quota.due(config(ev_step_enabled=False), q, o, night)
+    q['last_poll'] = night.timestamp() - 120
+    assert not quota.due(c, q, o, night), 'At least 5 minutes between reads'
+
+
+def test_cadence_follows_the_car():
+    c, q = config(), quota.counters({}, NOW)
+    def due_after(minutes, **o):
+        q['last_poll'] = NOW.timestamp() - minutes * 60
+        return quota.due(c, q, observed(**o), NOW)
+    assert due_after(10, ev_mode='driving') == 'driving' and not due_after(9, ev_mode='driving')
+    assert due_after(10, ev_mode='charging') == 'charging'
+    assert due_after(10, ev_mode='driving', sun_up=False) == 'driving', 'Driving cadence also at night'
+    assert due_after(30, ev_mode='plugged') == 'plugged' and not due_after(29, ev_mode='plugged')
+    assert due_after(120, ev_mode='away') == 'away' and not due_after(119, ev_mode='away')
+    assert not due_after(300, ev_mode='away', sun_up=False, pv=0), 'Parked away: no night reads'
+    assert not due_after(60, ev_mode='home', export=0), 'Home idle keeps 90 min'
+    assert due_after(90, ev_mode='home', export=0) == 'idle'
+    q['reads_day'] = c['ev_reads_daily']
+    assert not due_after(60, ev_mode='driving'), 'Budget still applies'
+
+
+evlimit = load('evlimit')
+HOME = {'ev_home': True, 'ev_connected': True}
+
+
+def test_owner_limit_sets_native_once_then_enforces_below_the_floor():
+    assert evlimit.valid(35) and not evlimit.valid(19) and not evlimit.valid(101) and not evlimit.valid(True) and not evlimit.valid(35.5)
+    lim = {'soc': 35, 'pending_native': True}
+    assert evlimit.decide(lim, HOME, 30, 80, True, True) == ('set_limit', 50)
+    lim['pending_native'] = False
+    assert evlimit.decide(lim, HOME, 34, 50, True, True) is None
+    assert evlimit.decide(lim, HOME, 35, 50, True, True) == ('stop', None)
+    assert evlimit.decide(lim, HOME, 35, 50, True, True) == ('stop', None), 'Also a charge the owner started in the car app'
+    assert evlimit.decide(lim, {'ev_home': False, 'ev_connected': True}, 40, 50, True, True) is None, 'Only at home'
+    lim['stopped'] = True
+    assert evlimit.decide(lim, HOME, 34, 50, False, False) is None, 'Hysteresis'
+    assert evlimit.decide(lim, HOME, 33, 50, False, False) == ('start', None)
+    assert evlimit.decide(lim, HOME | {'ev_complete': True}, 33, 50, False, False) is None
+    assert evlimit.decide({'soc': 35}, HOME, 20, 50, False, False) is None, 'Never starts a charge it did not stop'
+
+
+def test_owner_limit_at_or_above_floor_is_left_to_the_car():
+    lim = {'soc': 70, 'pending_native': True}
+    assert evlimit.decide(lim, HOME, 60, 50, True, True) == ('set_limit', 70)
+    lim['pending_native'] = False
+    assert evlimit.decide(lim, HOME, 75, 70, True, True) is None
+    assert evlimit.decide(lim | {'stopped': True}, HOME, 40, 70, False, False) == ('start', None), 'Raised target resumes a charge the limit stopped'
+
+
+def test_near_owner_limit_reads_at_the_active_cadence():
+    lim = {'soc': 35}
+    assert evlimit.near(lim, HOME, 31) and not evlimit.near(lim, HOME, 30) and not evlimit.near({'soc': 70}, HOME, 69)
+    c, q = config(), quota.counters({}, NOW)
+    q['last_poll'] = NOW.timestamp() - c['ev_active_seconds']
+    assert quota.due(c, q, observed(ev_mode='charging', ev_limit_near=True), NOW) == 'limit'

@@ -31,7 +31,7 @@
   color-scheme: dark;
 }
 body { color: var(--text); background: var(--page-base); }
-body::before { content: ""; position: fixed; inset: 0; z-index: 0; background: url("./assets/interior.webp") center / cover no-repeat; pointer-events: none; }
+body::before { content: ""; position: fixed; inset: 0; z-index: 0; background: var(--page-base); pointer-events: none; }
 body::after { content: ""; position: fixed; inset: 0; z-index: 0; background: #edf2eb24; pointer-events: none; }
 .app-shell { position: relative; z-index: 1; }
 [data-theme="dark"] body::after { background: #101518c2; }

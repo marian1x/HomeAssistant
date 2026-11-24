@@ -1,0 +1,47 @@
+// "Casa acum" sentence and independence share: facts only, from synthetic readings.
+import assert from 'node:assert/strict';
+import {brief,autarky} from '../src/brief.ts';
+import {auroraMix,CALM} from '../src/aurora-mix.ts';
+import {arrange,move,groupOrder,moveGroup,uses,EMPTY} from '../src/arrange.ts';
+const base={live:true,pv:0,house:1,gridImport:0,gridExport:0,charge:0,discharge:0,solarHouse:0,soc:50,solarToday:10,loadToday:20,importToday:5};
+const say=(o)=>brief({...base,...o});
+assert.equal(say({live:false}).tone,'idle');
+assert.equal(say({house:null}).headline,'Astept o citire recenta de la invertor.');
+assert.equal(say({discharge:1.26,soc:29}).headline,'Casa merge pe baterie: 1,26 kW, la 29%.');
+assert.equal(say({discharge:1.26,soc:null}).headline,'Casa merge pe baterie: 1,26 kW.');
+assert.equal(say({gridImport:2}).headline,'Casa consuma 2 kW din retea.');
+assert.equal(say({gridImport:2,charge:1}).headline,'Casa consuma 2 kW din retea; bateria se incarca cu 1 kW.');
+assert.equal(say({pv:5,gridExport:2.5,charge:1.5,solarHouse:1}).headline,'Soarele alimenteaza casa, incarca bateria si injecteaza 2,5 kW in retea.');
+assert.equal(say({pv:3,charge:2,solarHouse:1}).headline,'Soarele alimenteaza casa si incarca bateria cu 2 kW.');
+assert.equal(say({pv:1,solarHouse:1}).headline,'Casa merge integral pe energie solara.');
+assert.equal(say({pv:.5,solarHouse:.5,gridImport:.5}).headline,'Soarele acopera 50% din consum; reteaua completeaza cu 0,5 kW.');
+assert.equal(say({pv:.5,solarHouse:.5,discharge:.5}).headline,'Soarele acopera 50% din consum; bateria completeaza cu 0,5 kW.');
+assert.equal(say({pv:.5,solarHouse:null}).headline,'Panourile produc 0,5 kW.');
+assert.equal(say({house:.2}).headline,'Consum redus: 0,2 kW.');
+assert.equal(say({gridImport:.03,discharge:.02}).tone,'calm','Noise below 50 W is not a flow');
+assert.equal(autarky({loadToday:18.8,importToday:3.2}),83);
+assert.equal(autarky({loadToday:10,importToday:14}),0,'Never negative when the battery charged from the grid');
+assert.equal(autarky({loadToday:0,importToday:0}),null);
+assert.equal(autarky({loadToday:null,importToday:1}),null);
+assert.equal(say({}).autarky,75);
+// Aurora follows the same readings; without a live reading it rests on the neutral mix.
+assert.equal(auroraMix({...base,live:false}),CALM);
+const mix=auroraMix({...base,pv:4,house:2,gridExport:2});
+assert.equal(mix.solar,1);assert.ok(mix.battery<.1&&mix.load>.4&&mix.load<.6&&mix.energy===1);
+// Device order: manual, most used, default; moves keep hidden devices in place.
+const dev=(id,...entities)=>({id,primary:{entity_id:entities[0]||id},entries:entities.map(e=>({entity_id:e}))});
+const all=[dev('a','light.a'),dev('b','light.b','switch.b2'),dev('c','light.c'),dev('d','light.d')];
+const ids=l=>arrange(all,l).map(d=>d.id).join('');
+assert.equal(ids(EMPTY),'abcd');
+assert.equal(ids({...EMPTY,sort:'manual',order:['c','a']}),'cabd','Unknown devices follow in default order');
+assert.equal(ids({...EMPTY,sort:'manual',order:['c','gone','a']}),'cabd','Removed devices are ignored');
+assert.equal(uses(all[1],{'light.b':2,'switch.b2':3,'light.a':9}),5);
+assert.equal(ids({...EMPTY,sort:'usage',order:['d'],usage:{'light.c':4,'switch.b2':4,'light.a':1}}),'bcad'.replace('bcad','bcad'),'Most used first');
+assert.equal(ids({...EMPTY,sort:'usage',order:['c','b'],usage:{'light.c':4,'switch.b2':4}}),'cbad','Ties keep the manual order');
+assert.deepEqual(move(['a','b','c','d'],['a','c'],'c',0),['c','b','a','d'],'Only the visible slots change');
+assert.deepEqual(move([],['a','b','c'],'a',2),['b','c','a']);
+assert.deepEqual(move(['x'],['a','b'],'b',0),['x','b','a'],'New ids are appended');
+assert.deepEqual(groupOrder({...EMPTY,groups:['media','bogus']}),['media','lights','climate','water','power','mobility']);
+assert.deepEqual(moveGroup({...EMPTY,groups:[]},'climate',-1).slice(0,2),['climate','lights']);
+assert.deepEqual(moveGroup({...EMPTY,groups:[]},'lights',-1).slice(0,1),['lights'],'First group cannot go higher');
+console.log('BRIEF OK');

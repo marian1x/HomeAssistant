@@ -11,7 +11,8 @@ async def refresh(manager, observations):
     q = counters(manager.memory.setdefault('tesla_quota', {}), dt_util.now())
     owned = manager.memory['devices']['tesla']
     active = c['ev_enabled'] and owned.get('owned') and owned.get('mode') == 'solar' and observations.get('ev_on') and not observations.get('tesla_manual')
-    if not due(c, q, observations, dt_util.now(), active):
+    reason = due(c, q, observations, dt_util.now(), active)
+    if not reason:
         return
     registry = er.async_get(hass)
     entity = registry.async_get(c['ev_switch'])
@@ -29,8 +30,11 @@ async def refresh(manager, observations):
     vin = next(iter(cars))
     controller = data['controller']
     coordinator = data['coordinators'][vin]
-    q.update(last_poll=time.time(), reads_day=q['reads_day']+1, reads_month=q['reads_month']+1, status='Verificare fara wake-up')
-    if not observations.get('sun_up'):
+    q.update(last_poll=time.time(), reads_day=q['reads_day']+1, reads_month=q['reads_month']+1, status='Verificare fara wake-up',
+             last_reason=reason, mode=observations.get('ev_mode', 'unknown'))
+    if reason.startswith('step'):
+        q.update(step_at=time.time(), steps_day=q.get('steps_day', 0)+1)
+    if reason == 'night':
         q['night_day'] = dt_util.now().strftime('%Y-%m-%d')
     await manager.save()
     old_update = controller.get_last_update_time(vin=vin)

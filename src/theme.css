@@ -8,6 +8,12 @@
   --energy-battery: #d16ba0;
   --energy-grid: #2367c9;
   --energy-export: #9a7cf0;
+  /* Tesla drive speed bands (map + profile), sequential green -> red, readable on OSM tiles. */
+  --speed-1: #1f8a62;
+  --speed-2: #6f9a2e;
+  --speed-3: #c98a0f;
+  --speed-4: #d35a26;
+  --speed-5: #a8326a;
   --status-good: #1f8a62;
   --status-bad: #c4513a;
   --chart-grid: #5d6f6629;
@@ -27,6 +33,11 @@
   --energy-battery: #d0679f;
   --energy-grid: #2f6cc8;
   --energy-export: #997ee9;
+  --speed-1: #3fb487;
+  --speed-2: #93bf4a;
+  --speed-3: #e0a52a;
+  --speed-4: #ea7445;
+  --speed-5: #d65f8f;
   --status-good: #3fb487;
   --status-bad: #e07a63;
   --chart-grid: #c9dad021;

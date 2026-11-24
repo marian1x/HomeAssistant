@@ -33,12 +33,22 @@ The local adapter shares that integration's controller/cache and always passes
 `wake_if_asleep=False`. It never presses the native Force Data Update button, which
 would wake the car. Requests go through the existing private proxy, not a public proxy.
 
-- Daylight idle: once per 90 minutes while PV production exists. Meaningful surplus
-  with an eligible car at home permits a pre-start check after 15 minutes.
+- Cadence follows the last known car state (owner request 2026-11-24), always without
+  wake-up: driving (online, shift D/R/N) every 10 min, also at night; charging without
+  engine ownership every 10 min; plugged in but idle every 30 min by day; parked away
+  every 120 min by day; at home unplugged every 90 min while PV production exists.
+  Meaningful surplus with an eligible car at home permits a pre-start check after 15 min.
+- Load-step trigger: a sustained (>= 60 s), balanced three-phase rise of the house load
+  (default >= 3 kW total and >= 0.8 kW on each of `sensor.deye_load_l1/l2/l3_power`
+  against the 2-10 min baseline) reads the car once, day or night, unless it is already
+  known to be charging or driving; the matching drop reads a charging car once. Single-
+  phase appliances do not trigger it. >= 5 min between reads, 10 min step cooldown,
+  12 step reads/day, all inside the normal read budget. Idle cadences stay >= 30 min so
+  a parked car can still fall asleep between reads.
 - Engine-owned solar charging: reads at most every 120 seconds; electrical evaluation
   remains every 30 seconds. Requested current is written only when different.
-- Night: one check in the five-minute window starting at 00:00; no catch-up checks at
-  arbitrary night hours, and no waking a sleeping car.
+- Night: besides driving/charging cadence and load steps, one check in the five-minute
+  window starting at 00:00; no catch-up checks, and no waking a sleeping car.
 - Defaults: 60 read cycles/day, 900/month; 60 automatic service commands/day, 900/month.
   Two daily/four monthly command slots are reserved for stopping owned charging.
 - Counts are charged before I/O, persist across restarts and reset by local calendar.
@@ -49,7 +59,14 @@ would wake the car. Requests go through the existing private proxy, not a public
   accounting are outside this counter. Set a spending limit in the Tesla Developer
   portal; the local cap alone cannot guarantee a zero bill.
 - No precise short-trip/route history is promised with sparse polling. Fleet Telemetry
-  is the appropriate follow-up for reliable drives without frequent vehicle-data polls.
+  (installed 2026-11-25, `FLEET-TELEMETRY.md`) records drives point by point when the car
+  streams. While the stream is live (a message within 120 s), the 10-minute driving read is
+  skipped and the live gear feeds `ev_mode`; charging, limit, load-step and night reads stay.
+- Streaming budget (owner 2026-11-25): signals are counted locally (150 000/$1, x1.2 margin).
+  If the first 14 days cost more than $2, or streaming + used API + the reserve for every
+  remaining read/command of the 900/900 monthly caps would exceed the $10 monthly credit,
+  `fleet.py` removes the car's telemetry config once (one API call) and notifies. Reads and
+  charging commands keep their budget.
 
 Automatic charging is restricted to the physical `zone.home` near the panels, not all
 locations classified as "home" for historical charging statistics. A lower manual
@@ -140,3 +157,30 @@ Regenerate `tests/build-finance-fixture.py` before browser tests after accountin
 environment; it does not call the real HA API or the vehicle. Commissioning is separate.
 AC powers are estimates until dedicated meters are added; reserve margins and live
 grid feedback limit discretionary consumption, but they are not revenue-grade metering.
+
+## Owner Charge Limit and Tesla Journal (2026-11-24)
+
+- `home_energy_policy.set_ev_limit` (20-100 %). At or above 50 % the native car limit is set
+  once at the next fresh read. Below 50 % the native limit stays at 50 % and, only at home
+  while plugged in, charging is stopped at the target and only a charge stopped this way is
+  resumed 2 points below it. Commands use fresh data from an awake car, never wake it, count
+  in the command budget and do not create manual holds. Solar target = min(80, owner limit).
+- The journal records drives and charges from existing states into
+  `/config/home_energy_policy_tesla.db`; home charges are split into solar, house battery and
+  grid from the Deye flows every 30 s. Solar is valued at the export price, battery energy at
+  the export price / 90 %, grid at the import price; station prices are entered per charge.
+
+## Cold-morning grid heat assist (owner decision 2026-11-25)
+
+New policy feature (`coldcharge.py` pure logic + `runtime.cold_charge`, config group `battery`).
+When `cold_charge_enabled` and the battery temperature (`sensor.deye_battery_temperature`) is
+below `cold_charge_temp_c` (3°C) AND now is within `cold_charge_hours_before_sunrise` (3h)
+before `sun.sun` next_rising, it turns ON `switch.deye_battery_grid_charging` only — no SOC or
+TOU-program writes. This makes the inverter "wait to charge" so the pack's self-heater runs;
+the BMS still caps the real current at low temp, and the Deye program SOC (20%) bounds any grid
+charge, so little grid energy is used. It turns the switch OFF at `cold_charge_recover_c` (6°C),
+or when solar production starts (pv >= solar_min_kw), or when the window ends at sunrise.
+Writes only on transition, with hysteresis (3→6°C) and a command cooldown; respects the kill
+switch and legacy-conflict guard; only turns off a switch it turned on (never fights a manual
+change). Status in the policy sensor attribute `cold_charge`; shown on the policy page. Tests:
+`tests/test_coldcharge.py`. Armed by the owner for the next cold morning.

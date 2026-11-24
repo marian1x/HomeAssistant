@@ -154,17 +154,16 @@ does not separately identify battery-supplied boiler energy.
 
 ## UI Features
 
-- Light glass control station with tactile controls, recessed toggles, raised navigation,
-  compact room/category device lists and a persistent optional dark theme. No house
-  model or WebGL workload in the active frontend. The old Scene module is not imported.
+- Nova layer (2026-11-10): glass control station over a live WebGL aurora whose colours
+  follow the real energy mix, animated values, View Transitions between pages and themes,
+  a Ctrl/Cmd+K command palette. One small fragment shader, no three.js and no house model;
+  the old Scene module is not imported. See `AGENT-HANDOFF.md`, "Stratul Nova".
 - Weather and outdoor humidity come from the first available HA weather entity, not
   an inferred indoor value. Room tabs use real HA area assignments. Only climate devices
   with unscaled setpoints are writable. Temperature and brightness edits are local drafts
   until an explicit confirmation; read-only/offline controls are disabled.
-- Generated interior and archived pendant illustrations are decorative, not live camera views or
-  photographs of the user's actual home/devices. The active dashboard loads only the
-  self-hosted 170 KB interior background; the oversized lamp illustration is removed.
-  See `src/assets/README.md` for provenance and generation prompts.
+- The generated interior and pendant illustrations in `src/assets` are archived and no
+  longer loaded; see `src/assets/README.md` for provenance.
 - The home dashboard lists all controllable lights, ACs, water heaters, sockets, media
   and vehicle controls for the selected room or all rooms. Offline devices are hidden
   by default and can be inspected with a checkbox; unknown/unintegrated placeholders

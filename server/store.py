@@ -35,6 +35,7 @@ class Store:
                 role TEXT NOT NULL DEFAULT 'viewer', password TEXT NOT NULL, totp BLOB, totp_step INTEGER NOT NULL DEFAULT 0,
                 must_change INTEGER NOT NULL DEFAULT 1, failures INTEGER NOT NULL DEFAULT 0, locked_until REAL NOT NULL DEFAULT 0,
                 disabled INTEGER NOT NULL DEFAULT 0, created REAL, created_by TEXT, last_login REAL);
+            CREATE TABLE IF NOT EXISTS layouts (user TEXT PRIMARY KEY, data TEXT NOT NULL, updated REAL);
         ''')
         columns = {row[1] for row in self.db.execute('PRAGMA table_info(users)')}
         if 'is_admin' not in columns:
@@ -127,6 +128,7 @@ class Store:
 
     def local_delete(self, user_id):
         self.db.execute('DELETE FROM local_users WHERE id=?', (user_id,))
+        self.db.execute('DELETE FROM layouts WHERE user=?', (user_id,))
         self.db.commit()
 
     def get(self, sid):
@@ -160,6 +162,21 @@ class Store:
         self.db.execute('INSERT INTO audit(at,actor,action,entity,result) VALUES (?,?,?,?,?)', (time.time(), actor, action, entity, result))
         self.db.execute('DELETE FROM audit WHERE id NOT IN (SELECT id FROM audit ORDER BY id DESC LIMIT 10000)')
         self.db.commit()
+
+    # Device order chosen by each user (HA or Casa account); display preference only.
+    def layout_get(self, user):
+        row = self.db.execute('SELECT data FROM layouts WHERE user=?', (user,)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def layout_set(self, user, data):
+        self.db.execute('INSERT INTO layouts(user,data,updated) VALUES (?,?,?) ON CONFLICT(user) DO UPDATE SET data=excluded.data,updated=excluded.updated',
+                        (user, json.dumps(data, separators=(',', ':')), time.time()))
+        self.db.commit()
+
+    def usage(self, user, since):
+        """Accepted commands per entity sent by this user, from the audit log."""
+        rows = self.db.execute("SELECT entity,COUNT(*) FROM audit WHERE actor=? AND at>=? AND result='Acceptata de HA' GROUP BY entity", (user, since))
+        return {entity: count for entity, count in rows}
 
     def prune(self):
         self.db.execute('DELETE FROM sessions WHERE expires < ?', (time.time(),))

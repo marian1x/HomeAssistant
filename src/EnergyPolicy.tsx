@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Battery, Car, House, Flame, Fan, RefreshCw, Save, Search, RotateCcw, ShieldCheck, Clock, AlertTriangle } from 'lucide-react';
-import type { Snapshot } from './model';
+import { Battery, Car, House, Flame, Fan, RefreshCw, Save, Search, RotateCcw, ShieldCheck, Clock, AlertTriangle, Snowflake } from 'lucide-react';
+import { type Snapshot, format } from './model';
 import './energy-policy.css';
 
 type Field = {key: string; label: string; group: string; kind: string; min?: number; max?: number; step?: number; unit?: string; choices?: string[]};
@@ -10,6 +10,9 @@ const groups: Record<string, string> = {general: 'Program si control', prices: '
 const deviceMeta = [{key: 'tesla', label: 'Tesla', icon: Car}, {key: 'boiler', label: 'Boiler Ariston', icon: Flame}, {key: 'tcl', label: 'TCL / parter', icon: Fan}, {key: 'whirlpool', label: 'Whirlpool / etaj', icon: Fan}];
 const modes: Record<string, string> = {manual: 'Manual', normal: 'Confort', solar: 'Surplus solar', unavailable: 'Neconectat', idle: 'In asteptare'};
 const fmt = (n: any, unit: string) => typeof n === 'number' && Number.isFinite(n) ? `${n.toLocaleString('ro-RO', {maximumFractionDigits: 2})} ${unit}` : 'Fara date';
+
+const EV_MODE: Record<string, string> = { driving: 'in mers', charging: 'se incarca', plugged: 'conectata, fara incarcare', home: 'acasa', away: 'parcata departe', unknown: 'necunoscuta' };
+const EV_REASON: Record<string, string> = { step_up: 'salt de consum trifazat', step_down: 'scadere de consum trifazat', driving: 'in mers', charging: 'incarcare', plugged: 'conectata', away: 'departe', night: 'verificarea de la miezul noptii', solar: 'incarcare solara', idle: 'verificare de zi' };
 
 export default function EnergyPolicy({snapshot, canConfigure, canControl}: {snapshot: Snapshot; canConfigure: boolean; canControl: boolean}) {
   const [data, setData] = useState<Policy | null>(null);
@@ -90,7 +93,8 @@ export default function EnergyPolicy({snapshot, canConfigure, canControl}: {snap
       <div><span>Exterior / sezon</span><strong>{fmt(status.outside_c, '°C')}</strong><small>{status.season === 'Winter' ? 'Iarna' : status.season === 'Summer' ? 'Vara' : ''}</small></div>
       <div><span>Prognoza ramasa azi</span><strong>{fmt(status.forecast_remaining_kwh, 'kWh')}</strong><small>{status.updated_at ? new Date(status.updated_at).toLocaleTimeString('ro-RO', {hour: '2-digit', minute: '2-digit'}) : ''}</small></div>
     </div>
-    {status.tesla_quota && <section className="policy-quota" aria-label="Buget Tesla API"><header><Car size={19}/><strong>Tesla API</strong><span>{status.tesla_quota.polling_protected ? 'Polling periodic oprit' : 'Protectie polling neconfirmata'}</span></header><div><span>Citiri azi <strong>{status.tesla_quota.reads_day || 0} / {data?.config.ev_reads_daily}</strong></span><span>Citiri luna <strong>{status.tesla_quota.reads_month || 0} / {data?.config.ev_reads_monthly}</strong></span><span>Comenzi azi <strong>{status.tesla_quota.commands_day || 0} / {data?.config.ev_commands_daily}</strong></span><span>Comenzi luna <strong>{status.tesla_quota.commands_month || 0} / {data?.config.ev_commands_monthly}</strong></span></div><small>{status.tesla_quota.status || 'Fara cerere de actualizare'}</small></section>}
+    {status.cold_charge?.enabled && <section className="policy-quota" aria-label="Injectie din retea pe frig"><header><Snowflake size={19}/><strong>Incalzire din retea</strong><span>{status.cold_charge.active ? 'Injectie activa' : 'In asteptare'}</span></header><div><span>Baterie <strong>{typeof status.cold_charge.battery_temp === 'number' ? format(status.cold_charge.battery_temp, 1) + ' °C' : '--'}</strong></span><span>Porneste sub <strong>{data?.config.cold_charge_temp_c} °C</strong></span><span>Opreste la <strong>{data?.config.cold_charge_recover_c} °C</strong></span><span>Fereastra <strong>{data?.config.cold_charge_hours_before_sunrise} h inainte de rasarit</strong></span></div><small>{status.cold_charge.reason}{status.cold_charge.grid_charge_switch ? ' · comutator retea: ' + status.cold_charge.grid_charge_switch : ''}</small></section>}
+    {status.tesla_quota && <section className="policy-quota" aria-label="Buget Tesla API"><header><Car size={19}/><strong>Tesla API</strong><span>{status.tesla_quota.polling_protected ? 'Polling periodic oprit' : 'Protectie polling neconfirmata'}</span></header><div><span>Citiri azi <strong>{status.tesla_quota.reads_day || 0} / {data?.config.ev_reads_daily}</strong></span><span>Citiri luna <strong>{status.tesla_quota.reads_month || 0} / {data?.config.ev_reads_monthly}</strong></span><span>Comenzi azi <strong>{status.tesla_quota.commands_day || 0} / {data?.config.ev_commands_daily}</strong></span><span>Comenzi luna <strong>{status.tesla_quota.commands_month || 0} / {data?.config.ev_commands_monthly}</strong></span></div><small>{status.tesla_quota.status || 'Fara cerere de actualizare'}{status.tesla_quota.mode ? ' · Masina: ' + (EV_MODE[status.tesla_quota.mode] || status.tesla_quota.mode) : ''}{status.tesla_quota.last_reason ? ' · Ultima citire: ' + (EV_REASON[status.tesla_quota.last_reason] || status.tesla_quota.last_reason) : ''}{' · Salturi de consum azi: ' + (status.tesla_quota.steps_day || 0) + ' / ' + (data?.config.ev_step_daily ?? '-')}</small></section>}
     <ol className="policy-priorities">{[[House, 'Casa'], [Battery, 'Baterie'], [Car, 'Tesla'], [Flame, 'Boiler'], [Fan, 'Climatizare']].map(([Icon, title]: any, i) => <li key={title}><span>{i + 1}</span><Icon size={19}/><strong>{title}</strong></li>)}</ol>
     <p className="policy-reason">{status.reason || 'Se incarca starea controlerului.'}</p>
     <div className="policy-devices">{deviceMeta.map(({key, label, icon: Icon}) => {

@@ -2,6 +2,7 @@ import { useState, type CSSProperties } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Battery, Car, ChevronDown, ChevronRight, ChevronUp, Flame, House, Plug, Sun, Wind, Zap } from 'lucide-react';
 import { type Device, type Snapshot, format, label, number } from './model';
 import { energyFlow } from './energy-flow';
+import { Num } from './motion';
 
 const icons:Record<string,any>={solar:Sun,grid:Plug,battery:Battery,house:House,inverter:Zap,tesla:Car,boiler:Flame,ac:Wind,other:Plug};
 export default function EnergyFlow({data,devices,navigate}:{data:Snapshot|null;devices:Device[];navigate:(view:string)=>void}) {
@@ -29,11 +30,13 @@ export default function EnergyFlow({data,devices,navigate}:{data:Snapshot|null;d
   function line(id:string,d:string,kw:number|null,reverse=false) {
     const active=f.live&&kw!==null&&kw>.03;
     const point=({solar:[350,118,90],grid:[330,222,-90],house:[670,166,0],battery:[500,220,90]} as Record<string,number[]>)[id];
-    return <g key={id}><path d={d} className={'flow-wire '+id+(active?' energized':'')+(reverse?' reverse':'')}/><g transform={`translate(${point[0]} ${point[1]}) rotate(${point[2]+(reverse?180:0)})`} className={'flow-arrow '+(active?'active':'')}><ChevronRight x={-8} y={-8} size={16}/></g></g>;
+    // Sparks travel faster as power grows: about 3,9 s per segment at 0,1 kW, 1,3 s at 5 kW.
+    const pace=active?Math.max(1.1,4.2-Math.log10(1+kw*4)*2.2):0;
+    return <g key={id} className={'flow-line '+id+(active?' energized':'')+(reverse?' reverse':'')} style={{'--pace':pace+'s'} as CSSProperties}><path d={d} className={'flow-wire '+id+(active?' energized':'')+(reverse?' reverse':'')}/>{active&&<><path d={d} className="flow-glow"/><path d={d} className="flow-tail"/><path d={d} className="flow-spark"/></>}<g transform={`translate(${point[0]} ${point[1]}) rotate(${point[2]+(reverse?180:0)})`} className={'flow-arrow '+(active?'active':'')}><ChevronRight x={-8} y={-8} size={16}/></g></g>;
   }
   return <section className="house-energy" aria-label="Energia intregii case">
     <div className="house-energy-title"><div><span className="eyebrow">ENERGIA INTREGII CASE</span><h2>Productie, stocare si consum</h2></div><span className={'flow-live '+(f.live?'online':'')}><i/>{f.live?'Live':'Fara citire recenta'}</span></div>
-    <div className="live-power-strip">{metrics.map(([id,title,kw,Icon]:any)=><button key={id} onClick={()=>{setSelected(id);setExpanded(true);}} aria-label={title+' · detalii'}><span><Icon size={17}/>{title}</span><strong>{format(kw,2)}<small> kW</small></strong><small>{id==='battery'?format(f.soc,0)+'% SOC':id==='solar'?format(f.solarToday,1)+' kWh azi':id==='house'?'Solar '+format(f.solarHouse,2)+' kW':(gridOut?'Import ':'Export ')+format(gridOut?f.gridImport:f.gridExport,2)+' kW'}</small></button>)}</div>
+    <div className="live-power-strip">{metrics.map(([id,title,kw,Icon]:any)=><button key={id} onClick={()=>{if(id==='battery'){navigate('battery');return;}setSelected(id);setExpanded(true);}} aria-label={id==='battery'?title+' · panoul bateriei':title+' · detalii'}><span><Icon size={17}/>{title}</span><strong><Num value={kw}/><small> kW</small></strong><small>{id==='battery'?format(f.soc,0)+'% SOC':id==='solar'?format(f.solarToday,1)+' kWh azi':id==='house'?'Solar '+format(f.solarHouse,2)+' kW':(gridOut?'Import ':'Export ')+format(gridOut?f.gridImport:f.gridExport,2)+' kW'}</small></button>)}</div>
     <button className="flow-expand" aria-expanded={expanded} onClick={()=>setExpanded(v=>!v)}><Zap size={16}/>Flux energetic {expanded?<ChevronUp size={17}/>:<ChevronDown size={17}/>}</button>
     {expanded&&<div className="energy-live-workspace">
       <div className="flow-main">
@@ -44,10 +47,10 @@ export default function EnergyFlow({data,devices,navigate}:{data:Snapshot|null;d
             {line('house','M500 166 H840',f.house)}
             {line('battery','M500 166 V299',batteryOut?f.discharge:f.charge,batteryOut)}
           </svg>
-          {nodes.map(n=>{const Icon=icons[n.id];return <button key={n.id} className={'flow-node '+n.id+(selected===n.id?' selected':'')} style={{left:n.x+'%',top:n.y+'%'} as CSSProperties} aria-pressed={selected===n.id} onClick={()=>setSelected(n.id)}><span className="flow-node-icon"><Icon size={22}/></span><span className="flow-node-name">{n.name}</span>{n.id!=='inverter'&&<strong>{format(n.kw,2)}<small> kW</small></strong>}<small>{n.sub}</small></button>;})}
+          {nodes.map(n=>{const Icon=icons[n.id];return <button key={n.id} className={'flow-node '+n.id+(selected===n.id?' selected':'')+(f.live&&(n.id==='inverter'||(n.kw??0)>.03)?' flowing':'')} style={{left:n.x+'%',top:n.y+'%',...(n.id==='battery'&&f.soc!==null?{'--soc':Math.max(0,Math.min(100,f.soc))+'%'}:{})} as CSSProperties} aria-pressed={selected===n.id} aria-label={n.id==='battery'?'Baterie · deschide panoul bateriei':undefined} onClick={()=>n.id==='battery'?navigate('battery'):setSelected(n.id)}><span className="flow-node-icon"><Icon size={22}/></span><span className="flow-node-name">{n.name}</span>{n.id!=='inverter'&&<strong><Num value={n.kw}/><small> kW</small></strong>}<small>{n.sub}</small></button>;})}
         </div>
         <div className="flow-load-heading"><span>Distributia consumului casei</span><span>kW</span></div>
-        <div className="flow-loads">{f.loads.map(r=>{const Icon=icons[r.id];return <button key={r.id} className={'flow-load '+r.id+(selected===r.id?' selected':'')} aria-pressed={selected===r.id} onClick={()=>setSelected(r.id)}><span><Icon size={18}/>{r.name}</span><strong>{r.kw===null&&r.knownKw>0?'≥ '+format(r.knownKw,2):format(r.kw,2)}<small> kW</small></strong><small>{r.quality}</small><span className="flow-load-track"><i style={{width:r.knownKw&&f.house?Math.min(100,r.knownKw/f.house*100)+'%':'0%'}}/></span></button>;})}</div>
+        <div className="flow-loads">{f.loads.map(r=>{const Icon=icons[r.id];return <button key={r.id} className={'flow-load '+r.id+(selected===r.id?' selected':'')} aria-pressed={selected===r.id} onClick={()=>setSelected(r.id)}><span><Icon size={18}/>{r.name}</span><strong>{r.kw===null&&r.knownKw>0?<>≥ <Num value={r.knownKw}/></>:<Num value={r.kw}/>}<small> kW</small></strong><small>{r.quality}</small><span className="flow-load-track"><i style={{width:r.knownKw&&f.house?Math.min(100,r.knownKw/f.house*100)+'%':'0%'}}/></span></button>;})}</div>
         {f.conflict&&<p className="flow-data-warning" role="status">Citirile consumatorilor nu sunt sincronizate cu totalul casei.</p>}
       </div>
       <aside className="flow-insight" aria-live="polite"><h3>{heading}</h3>{selectedLoad&&<p>{selectedLoad.note}</p>}<dl>{details.map(([name,value])=><div key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl><div className="flow-today"><h3>Astazi</h3><dl>{[['Produs',f.solarToday],['Consumat',f.loadToday],['Cumparat',f.importToday],['Injectat',f.exportToday]].map(([title,n]:any)=><div key={title}><dt>{title}</dt><dd>{format(n,2)} kWh</dd></div>)}</dl></div><button className="text-button" onClick={()=>navigate('economics')}>Costuri si prognoza <ArrowUpRight size={16}/></button></aside>

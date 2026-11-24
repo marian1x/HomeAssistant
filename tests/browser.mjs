@@ -81,9 +81,10 @@ try{
     await page.screenshot({path:`test-results/overview-viewport-${width}.png`});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`No overflow ${width}`);
     assert.equal(writes.length,0,'Viewing never sends control commands');
-    assert.equal(await page.locator('canvas').count(),0,'No house model or WebGL rendering');
+    assert.equal(await page.locator('canvas').count(),1,'Only the aurora background canvas, no house model');
+    assert.equal(await page.locator('canvas.aurora[aria-hidden="true"]').count(),1,'Aurora is decorative');
     assert.equal(await page.locator('.pendant-art').count(),0,'No oversized lighting illustration');
-    assert(await page.evaluate(()=>getComputedStyle(document.body,'::before').backgroundImage.includes('/assets/interior-')),'Existing bitmap background retained');
+    assert(!await page.evaluate(()=>getComputedStyle(document.body,'::before').backgroundImage.includes('interior')),'No stock photograph behind the interface');
     const overlaps=await page.locator('.home-device').evaluateAll(tiles=>tiles.flatMap((t,i)=>tiles.slice(i+1).filter(o=>{const a=t.getBoundingClientRect(),b=o.getBoundingClientRect();return a.left<b.right-1&&a.right>b.left+1&&a.top<b.bottom-1&&a.bottom>b.top+1}).map(()=>i)));
     assert.deepEqual(overlaps,[],`No tile overlap ${width}`);
     await page.getByRole('button',{name:'Aspect intunecat',exact:true}).click();
@@ -234,10 +235,15 @@ try{
   await manual.waitForFunction(()=>document.querySelector('.connection.live'));
   const lightToggle=manual.locator('.home-device.lights').first().getByRole('switch');
   assert(await lightToggle.isEnabled());
-  await lightToggle.click();assert.equal(writes.length,0,'Toggle requires confirmation');
-  await manual.getByRole('dialog').getByRole('button',{name:'Confirma',exact:true}).click();
-  await manual.getByRole('dialog').waitFor({state:'hidden'});
-  assert.equal(writes.length,1,'Exactly one explicit mock command');
+  // Owner decision 2026-11-10: lights act on the press, without a confirmation dialog.
+  await lightToggle.click();
+  await manual.waitForFunction(()=>!document.querySelector('.toggle.busy'));
+  assert.equal(await manual.getByRole('dialog').count(),0,'Lights do not ask');
+  assert.equal(writes.length,1,'Exactly one mock command for one press');
+  // Everything that is not a light still asks first.
+  await manual.locator('.home-device.power').first().getByRole('switch').click();
+  await manual.getByRole('dialog').getByRole('button',{name:'Anuleaza',exact:true}).click();
+  assert.equal(writes.length,1,'A socket asks and sends nothing when cancelled');
   assert.equal(writes[0].path,'/casa/api/command');
   assert(['turn_on','turn_off'].includes(writes[0].data.action));
   assert(await lightToggle.getAttribute('aria-checked')==='true','No optimistic physical state mutation');

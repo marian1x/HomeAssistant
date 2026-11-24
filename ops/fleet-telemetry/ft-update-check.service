@@ -1,0 +1,8 @@
+[Unit]
+Description=Check for Fleet Telemetry / Mosquitto releases (report only)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/fleet-telemetry/ft-update-check.sh

@@ -32,8 +32,15 @@ LEVEL = {'viewer': 0, 'control': 1, 'configure': 2}
 AUTO_FLAGS = {'input_boolean.ariston_solar_boost_enabled', 'input_boolean.hvac_solar_climate_enabled'}
 LEGACY_POLICY = {'automation.hvac_solar_climate_control', 'automation.ariston_solar_boiler_boost_from_surplus', 'automation.ariston_solar_boiler_stop_when_surplus_drops', 'automation.ariston_solar_boiler_restore_after_tesla', 'automation.ariston_summer_default_temperature_manager'}
 BACKUP_MAINTENANCE = {'automation.ha_full_backup_morning_and_evening', 'automation.ha_backup_integrity_monitor'}
-ATTRS.update({'fan_mode', 'fan_modes', 'phase', 'reason', 'devices', 'updated_at', 'power_valid', 'battery_soc', 'pv_kw', 'import_kw', 'export_kw', 'solar_budget_kw', 'battery_support_kw', 'recharge_lock', 'forecast_remaining_kwh', 'last_error', 'tesla_quota'})
+ATTRS.update({'fan_mode', 'fan_modes', 'phase', 'reason', 'devices', 'updated_at', 'power_valid', 'battery_soc', 'pv_kw', 'import_kw', 'export_kw', 'solar_budget_kw', 'battery_support_kw', 'recharge_lock', 'forecast_remaining_kwh', 'last_error', 'tesla_quota', 'ev_limit', 'cold_charge'})
 ATTRS.add('battery_reserve_soc')
+# BMS values the Deye inverter forwards; Solarman exposes them as attributes of
+# sensor.deye_battery. Read-only, used by the battery panel.
+BMS_ATTRS = ('BMS SOC', 'BMS Current', 'BMS Voltage', 'BMS Other Symbol', 'BMS Charging Voltage', 'BMS Discharging Voltage',
+             'BMS Charging Current', 'BMS Discharging Current', 'BMS Max Charging Current', 'BMS Max Discharging Current',
+             'Corrected Capacity', 'Nominal Voltage', 'Life Cycle Rating')
+ATTRS.update(BMS_ATTRS)
+BATTERY_HISTORY = ('sensor.deye_battery', 'sensor.deye_battery_temperature', 'sensor.deye_battery_power')
 
 
 class Rejected(Exception):

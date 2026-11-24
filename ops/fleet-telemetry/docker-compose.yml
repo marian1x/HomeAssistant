@@ -1,0 +1,78 @@
+# Tesla Fleet Telemetry for Casa Salavat (installed at /opt/fleet-telemetry on the Pi5).
+# Secrets and certificates live in /etc/fleet-telemetry (root, 0750), never in this repo.
+# Exposure is decided by ft-firewall.sh (DOCKER-USER), not by this file: see FLEET-TELEMETRY.md.
+name: fleet-telemetry
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+  pids_limit: 64
+
+services:
+  fleet-telemetry:
+    <<: *hardening
+    # v0.10.0, pinned by digest; ft-update-check.sh reports newer releases.
+    image: tesla/fleet-telemetry@sha256:5b84420d8c18fe1379f79a4ca7aef59a9096c9ff9f18a0a9519b4bdb6989cdc1
+    container_name: fleet-telemetry
+    user: "65532:65532"
+    command: ["/fleet-telemetry", "-config", "/etc/fleet-telemetry/config.json"]
+    volumes:
+      - /etc/fleet-telemetry/config.json:/etc/fleet-telemetry/config.json:ro
+      - /etc/fleet-telemetry/tls:/certs:ro
+    ports:
+      # Only the LAN address the router forwards to. Docker bypasses ufw: the filter is DOCKER-USER.
+      - "192.168.50.101:4443:4443/tcp"
+    networks:
+      ft-edge: {ipv4_address: 172.30.40.2}
+      ft-bus: {ipv4_address: 172.30.41.2}
+    depends_on: [mosquitto]
+    mem_limit: 192m
+    cpus: 0.5
+    logging:
+      driver: journald
+      options: {tag: fleet-telemetry}
+
+  mosquitto:
+    <<: *hardening
+    image: eclipse-mosquitto@sha256:6a332cc7a8dbe011cbc076180cbb76b37c6f0f55809682ea08e7980ef0112ad9  # 2.0.23
+    container_name: ft-mosquitto
+    user: "1883:1883"
+    volumes:
+      - /etc/fleet-telemetry/mosquitto:/mosquitto/config:ro
+    tmpfs:
+      - /mosquitto/data:size=4m,uid=1883,gid=1883
+    ports:
+      # LAN only; DOCKER-USER accepts it only from the HA host (192.168.50.107).
+      - "192.168.50.101:8883:8883/tcp"
+    networks:
+      ft-bus: {ipv4_address: 172.30.41.3}
+      ft-lan: {ipv4_address: 172.30.42.2}
+    mem_limit: 64m
+    cpus: 0.25
+    logging:
+      driver: journald
+      options: {tag: ft-mosquitto}
+
+networks:
+  ft-edge:   # internet-facing side of fleet-telemetry; the container may only answer
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: ft-edge
+      com.docker.network.bridge.enable_icc: "false"
+      com.docker.network.bridge.enable_ip_masquerade: "false"
+    ipam: {config: [{subnet: 172.30.40.0/29}]}
+  ft-bus:    # fleet-telemetry -> mosquitto only, no route anywhere else
+    driver: bridge
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.name: ft-bus
+    ipam: {config: [{subnet: 172.30.41.0/29}]}
+  ft-lan:    # mosquitto <- Home Assistant (LAN)
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: ft-lan
+      com.docker.network.bridge.enable_icc: "false"
+      com.docker.network.bridge.enable_ip_masquerade: "false"
+    ipam: {config: [{subnet: 172.30.42.0/29}]}

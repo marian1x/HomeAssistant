@@ -1,0 +1,13 @@
+[Unit]
+Description=Fleet Telemetry firewall rules (DOCKER-USER)
+After=docker.service
+Requires=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/fleet-telemetry/ft-firewall.sh
+
+[Install]
+WantedBy=multi-user.target docker.service

@@ -1,0 +1,549 @@
+/* Nova layer (2026-11): living aurora background, glass chrome, motion and the command
+   palette. Loaded last. It only restyles; structure, roles and labels stay as they are.
+   Energy colours remain the validated tokens from theme.css. All motion is disabled under
+   prefers-reduced-motion at the end of this file. */
+
+@property --spin { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+
+:root {
+  --font: "Geist Variable", Inter, "Segoe UI", system-ui, sans-serif;
+  --mono: "Geist Mono Variable", ui-monospace, "Cascadia Code", Consolas, monospace;
+  --text: #13201c;
+  --muted: #4f615b;
+  --green: #0b7757;
+  --line: #10291f1c;
+  --edge: #ffffffd9;
+  --surface: #ffffffa8;
+  --surface-solid: #f8faf8;
+  --inset: #10291f0f;
+  --raised: linear-gradient(160deg, #ffffff, #eef3ef);
+  --shadow: inset 0 1px 0 #ffffffd9, 0 22px 44px -30px #173a2c59, 0 2px 8px -4px #173a2c26;
+  --page-base: #eef1ee;
+  --veil: transparent;
+  --halo: #0b775733;
+  --spark-solar: #c98a00;
+  --spark-grid: #2367c9;
+  --spark-battery: #cf5f9b;
+  --spark-load: #0c8a5f;
+  --radius: 14px;
+  --radius-lg: 20px;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --spring: cubic-bezier(.34, 1.56, .64, 1);
+}
+:root[data-theme="dark"] {
+  --text: #e9f2ee;
+  --muted: #9fb2ab;
+  --green: #5eeab5;
+  --line: #cfeee01f;
+  --edge: #ffffff1c;
+  --surface: #0c1317b8;
+  --surface-solid: #0f171c;
+  --inset: #00000052;
+  --raised: linear-gradient(160deg, #ffffff17, #ffffff08);
+  --shadow: inset 0 1px 0 #ffffff12, 0 26px 50px -30px #000000e6;
+  --page-base: #05080b;
+  --halo: #5eeab540;
+  --spark-solar: #ffc24a;
+  --spark-grid: #5c9dff;
+  --spark-battery: #ff8cc8;
+  --spark-load: #4ff0b4;
+}
+
+/* ---------- Canvas: aurora, fallback gradient, grain ---------- */
+html { background: var(--page-base); }
+body, button, input, select, textarea { font-family: var(--font); }
+body { font-feature-settings: "ss01", "cv11"; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+body::before {
+  background:
+    radial-gradient(60vw 50vh at 18% 6%, color-mix(in srgb, var(--spark-solar) 16%, transparent), transparent 70%),
+    radial-gradient(55vw 60vh at 88% 40%, color-mix(in srgb, var(--spark-load) 20%, transparent), transparent 70%),
+    radial-gradient(50vw 50vh at 30% 100%, color-mix(in srgb, var(--spark-grid) 16%, transparent), transparent 70%),
+    var(--page-base);
+}
+body::after, [data-theme="dark"] body::after {
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: .07;
+  mix-blend-mode: overlay;
+}
+[data-theme="dark"] body::after { opacity: .11; }
+.aurora { position: fixed; inset: 0; z-index: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0; transition: opacity 1.4s ease; }
+.aurora.ready { opacity: 1; }
+::selection { background: color-mix(in srgb, var(--green) 30%, transparent); }
+* { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--muted) 45%, transparent) transparent; }
+:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+
+/* ---------- Type ---------- */
+.eyebrow, .nav-caption, .palette-group, kbd { font-family: var(--mono); }
+.eyebrow { font-size: 10.5px; letter-spacing: .16em; font-weight: 500; color: var(--muted); }
+.num, .live-power-strip strong, .flow-node strong, .flow-load strong, .history-stat > strong, .energy-instrument strong, .home-device-reading strong, .metric strong { font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+h1, h2, h3 { letter-spacing: -.02em; }
+kbd { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border: 1px solid var(--line); border-radius: 6px; background: var(--inset); color: var(--muted); font-size: 10.5px; line-height: 1; }
+
+/* ---------- Chrome: rail, top bar, dock ---------- */
+.sidebar, .topbar { border: 1px solid var(--edge); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow); backdrop-filter: blur(22px) saturate(1.5); }
+.brand > span { border-radius: 14px; border-color: var(--edge); background: linear-gradient(150deg, color-mix(in srgb, var(--green) 26%, transparent), color-mix(in srgb, var(--spark-grid) 16%, transparent)); box-shadow: 0 0 0 1px var(--line), 0 10px 26px -10px var(--halo); color: var(--green); }
+.sidebar nav button, .sidebar-setting { isolation: isolate; transition: color .2s, background .2s; }
+.sidebar nav button svg, .sidebar-setting svg, .mobile-nav button svg { transition: transform .35s var(--spring); }
+.sidebar nav button:hover svg, .sidebar-setting:hover svg { transform: translateY(-1px) scale(1.08); }
+.sidebar nav button.active, .sidebar-setting.active { background: transparent; border-color: transparent; box-shadow: none; color: var(--green); }
+.sidebar nav button.active svg { transform: scale(1.08); filter: drop-shadow(0 0 10px var(--halo)); }
+.sidebar nav button .nav-mark, .sidebar-setting.active::after { display: block; content: ""; position: absolute; inset: 0; z-index: -1; border-radius: var(--radius); border: 1px solid color-mix(in srgb, var(--green) 30%, transparent); background: linear-gradient(160deg, color-mix(in srgb, var(--green) 20%, transparent), color-mix(in srgb, var(--green) 6%, transparent)); box-shadow: inset 0 1px 0 var(--edge), 0 12px 26px -16px var(--halo); }
+.sidebar nav button .nav-mark { view-transition-name: nav-mark; }
+.sidebar-setting { position: relative; }
+.avatar { border-color: var(--edge); }
+.topbar strong { font-weight: 600; letter-spacing: -.01em; }
+.quick-search { border-radius: 11px; border-color: var(--line); background: var(--inset); box-shadow: none; transition: border-color .2s, box-shadow .2s; }
+.quick-search:focus-within { border-color: color-mix(in srgb, var(--green) 55%, transparent); box-shadow: 0 0 0 4px var(--halo); }
+.quick-search input:focus-visible { outline: none; }
+.palette-trigger { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 9px; border: 1px solid var(--line); border-radius: 10px; background: var(--inset); color: var(--muted); transition: color .2s, border-color .2s, box-shadow .2s; }
+.palette-trigger:hover:not(:disabled) { color: var(--green); border-color: color-mix(in srgb, var(--green) 45%, transparent); box-shadow: 0 0 0 4px var(--halo); }
+.palette-trigger kbd { border: 0; background: none; padding: 0; min-width: 0; font-size: 11.5px; color: inherit; }
+.theme-toggle { border-radius: 11px; box-shadow: none; border: 1px solid var(--line); }
+.theme-toggle button { border-radius: 8px; transition: color .2s, background .2s; }
+.theme-toggle button svg { transition: transform .5s var(--spring); }
+.theme-toggle button[aria-pressed="true"] { background: var(--raised); color: var(--green); box-shadow: inset 0 1px 0 var(--edge), 0 4px 10px -6px #00000059; }
+.theme-toggle button[aria-pressed="true"] svg { transform: rotate(18deg) scale(1.08); }
+.connection.live .status-dot, .flow-live.online i { position: relative; background: var(--green); box-shadow: 0 0 0 0 var(--halo); animation: nova-pulse 2.4s ease-out infinite; }
+.button, .apply-button, .stepper-button, .mode-chip { border-radius: 11px; box-shadow: inset 0 1px 0 var(--edge), 0 6px 14px -10px #00000066; transition: transform .25s var(--spring), box-shadow .2s, border-color .2s, background .2s; }
+.button:hover:not(:disabled), .apply-button:hover:not(:disabled) { transform: translateY(-1px); border-color: color-mix(in srgb, var(--green) 40%, var(--line)); }
+.button.primary { color: var(--on-accent); background: linear-gradient(160deg, color-mix(in srgb, var(--green) 88%, #fff), var(--green)); border-color: transparent; box-shadow: inset 0 1px 0 #ffffff59, 0 10px 24px -10px var(--halo); }
+:root:not([data-theme="dark"]) .button.primary, :root:not([data-theme="dark"]) .auth-band .button.primary { color: #fff; }
+.auth-band, .offline-band, .update-band { border-radius: var(--radius); border-color: var(--edge); box-shadow: var(--shadow); }
+.mobile-nav { border-color: var(--edge); border-radius: 20px; background: var(--surface); box-shadow: var(--shadow), 0 18px 40px -18px #000000a6; backdrop-filter: blur(22px) saturate(1.5); }
+.mobile-nav button { position: relative; isolation: isolate; border-radius: 14px; }
+.mobile-nav button.active { background: transparent; box-shadow: none; color: var(--green); }
+.mobile-nav button.active svg { transform: translateY(-1px) scale(1.12); filter: drop-shadow(0 0 8px var(--halo)); }
+.dock-mark { position: absolute; inset: 3px 2px; z-index: -1; border-radius: 13px; border: 1px solid color-mix(in srgb, var(--green) 28%, transparent); background: linear-gradient(160deg, color-mix(in srgb, var(--green) 20%, transparent), color-mix(in srgb, var(--green) 5%, transparent)); view-transition-name: dock-mark; }
+
+/* ---------- Home hero: greeting, live sentence, independence ring ---------- */
+.home-welcome { align-items: flex-end; padding: 18px 2px 8px; --tone: var(--spark-load); }
+.home-welcome.tone-solar { --tone: var(--spark-solar); }
+.home-welcome.tone-battery { --tone: var(--spark-battery); }
+.home-welcome.tone-grid { --tone: var(--spark-grid); }
+.home-welcome.tone-idle { --tone: var(--muted); }
+.home-hello { min-width: 0; flex: 1 1 380px; }
+.home-welcome h1 { margin: 8px 0 10px; font-size: clamp(30px, 3.6vw, 46px); font-weight: 580; line-height: 1.04; letter-spacing: -.035em; background: linear-gradient(100deg, var(--text) 30%, color-mix(in srgb, var(--text) 55%, var(--tone))); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.home-brief { display: flex; align-items: baseline; gap: 10px; margin: 0; max-width: 62ch; font-size: 16px; line-height: 1.45; color: var(--text); animation: nova-brief .7s var(--ease) both; }
+.home-brief > i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--tone); box-shadow: 0 0 0 0 color-mix(in srgb, var(--tone) 45%, transparent), 0 0 14px var(--tone); transform: translateY(-1px); animation: nova-tone 2.6s ease-out infinite; }
+.home-facts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.home-facts > span { display: inline-flex; align-items: center; gap: 7px; min-height: 30px; padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 12.5px; }
+.home-facts svg { color: var(--tone); }
+.home-side { display: flex; align-items: center; justify-content: flex-end; gap: 22px; flex-wrap: wrap; }
+.autarky { display: grid; grid-template-columns: 72px auto; align-items: center; column-gap: 12px; }
+.autarky svg { grid-area: 1 / 1; width: 72px; height: 72px; transform: rotate(-90deg); filter: drop-shadow(0 0 10px color-mix(in srgb, var(--spark-load) 40%, transparent)); }
+.autarky circle { fill: none; stroke-width: 6; }
+.autarky-track { stroke: var(--inset); }
+.autarky-value { stroke: url(#autarky-stroke); stroke-linecap: round; transition: stroke-dashoffset 1.2s var(--ease); animation: nova-ring 1.4s var(--ease) both; }
+.autarky strong { grid-area: 1 / 1; place-self: center; font-size: 19px; font-weight: 620; }
+.autarky strong small { margin-left: 1px; font-size: 11px; font-weight: 500; color: var(--muted); }
+.autarky > span { font-size: 12px; line-height: 1.35; color: var(--muted); }
+
+/* ---------- Surfaces ---------- */
+.house-energy, .room-command-center, .chart-section, .account-settings, .settings-grid > section, .policy-shell, .economics-shell { border-radius: var(--radius-lg); }
+.house-energy, .chart-section { border: 1px solid var(--edge); background: var(--surface); box-shadow: var(--shadow); backdrop-filter: none; overflow: hidden; }
+.home-device, .flow-load, .device-card, .metric, .energy-instrument, .rule-row, .history-stat { position: relative; border-radius: var(--radius); backdrop-filter: none; }
+.home-device, .device-card, .metric, .energy-instrument { border: 1px solid var(--edge); background: var(--surface); box-shadow: var(--shadow); transition: transform .35s var(--ease), border-color .25s, box-shadow .25s; }
+.home-device:hover, .device-card:hover, .energy-instrument:hover { transform: translateY(-2px); }
+
+/* The aurora is already soft, so cards in the page flow do not blur it again (cheaper on
+   phones; blur plus opacity also renders grey on some GPUs). Floating chrome keeps its blur. */
+.account-settings, .auth-band, .offline-band, .floor-tabs, .station-tile, .device-card, .rule-list, .table-wrap, .settings-grid, .metric, .metric:first-child, .metric:last-child,
+.energy-instrument, .inspector, .policy-summary, .policy-device, .policy-group, .finance-summary, .finance-section, .finance-prices, .finance-forecast-days > article { backdrop-filter: none; }
+.policy-summary, .policy-group, .finance-summary, .finance-section, .finance-prices, .finance-forecast-days > article, .inspector, .rule-list, .table-wrap, .account-settings { border-radius: var(--radius-lg); border-color: var(--edge); overflow: hidden; }
+.policy-device { border-radius: var(--radius); border-color: var(--edge); transition: transform .35s var(--ease), box-shadow .25s; }
+.policy-device:hover { transform: translateY(-2px); }
+.policy-device.unavailable { opacity: 1; background: var(--surface); }
+.policy-device.unavailable > * { opacity: .55; }
+.modal-shade { backdrop-filter: blur(10px) saturate(1.2); background: color-mix(in srgb, var(--page-base) 55%, transparent); animation: nova-fade .2s ease both; }
+
+/* Light that follows a fine pointer (set by useSpotlight). */
+@media (hover: hover) and (pointer: fine) {
+  .home-device::after, .flow-load::after, .flow-node::after, .device-card::after, .metric::after, .live-power-strip > button::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity .3s;
+    background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--green) 16%, transparent), transparent 65%);
+  }
+  .home-device:hover::after, .flow-load:hover::after, .flow-node:hover::after, .device-card:hover::after, .metric:hover::after, .live-power-strip > button:hover::after { opacity: 1; }
+}
+
+/* ---------- Live strip and energy flow ---------- */
+.house-energy-title { padding-top: 20px; }
+.live-power-strip > button { position: relative; transition: background .25s; }
+.live-power-strip > button:hover { background: transparent; }
+.live-power-strip strong { font-size: 30px; font-weight: 560; line-height: 1.05; }
+.live-power-strip strong .num { display: inline; color: inherit; font-size: inherit; }
+.live-power-strip > button:nth-child(1) > span svg { color: var(--spark-solar); }
+.live-power-strip > button:nth-child(2) > span svg { color: var(--spark-load); }
+.live-power-strip > button:nth-child(3) > span svg { color: var(--spark-grid); }
+.live-power-strip > button:nth-child(4) > span svg { color: var(--spark-battery); }
+.flow-diagram { height: 340px; }
+.flow-node { gap: 3px; padding: 8px 5px; min-height: 0; }
+.flow-node .flow-node-icon svg { width: 18px; height: 18px; }
+.flow-line.solar { --wire: var(--spark-solar); }
+.flow-line.grid { --wire: var(--spark-grid); }
+.flow-line.battery { --wire: var(--spark-battery); }
+.flow-line.house { --wire: var(--spark-load); }
+.flow-wire, .flow-wire.energized { stroke-dasharray: none; stroke-width: 1.5; animation: none; }
+.flow-wire.energized { stroke: var(--wire); stroke-opacity: .34; }
+.flow-glow, .flow-tail, .flow-spark { fill: none; stroke: var(--wire); stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.flow-glow { stroke-width: 9; opacity: .14; filter: blur(5px); animation: nova-breathe 3.2s ease-in-out infinite; }
+.flow-tail { stroke-width: 2; stroke-dasharray: 24 48; opacity: .6; animation: nova-spark var(--pace, 2.4s) linear infinite; }
+.flow-spark { stroke-width: 5.5; stroke-dasharray: .1 71.9; stroke-dashoffset: -24; filter: drop-shadow(0 0 5px var(--wire)); animation: nova-spark-head var(--pace, 2.4s) linear infinite; }
+.flow-line.reverse .flow-tail { animation-direction: reverse; }
+.flow-line.reverse .flow-spark { stroke-dashoffset: 0; animation-name: nova-spark; animation-direction: reverse; }
+.flow-arrow.active { color: var(--wire, var(--green)); opacity: .9; }
+.flow-line .flow-arrow.active { color: var(--wire); }
+.flow-node { isolation: isolate; overflow: hidden; border-radius: 16px; border-color: var(--edge); background: var(--surface-solid); transition: border-color .3s, box-shadow .3s; animation: nova-fade .6s var(--ease) both; }
+.flow-node-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; background: var(--inset); transition: box-shadow .4s, background .4s; }
+.flow-node.solar { --node: var(--spark-solar); }
+.flow-node.grid { --node: var(--spark-grid); }
+.flow-node.battery { --node: var(--spark-battery); }
+.flow-node.house { --node: var(--spark-load); }
+.flow-node.inverter { --node: var(--green); }
+.flow-node.solar .flow-node-icon, .flow-node.grid .flow-node-icon, .flow-node.battery .flow-node-icon, .flow-node.house .flow-node-icon { color: var(--node); }
+.flow-node.flowing { border-color: color-mix(in srgb, var(--node) 42%, var(--line)); box-shadow: var(--shadow), 0 16px 40px -22px var(--node); }
+.flow-node.flowing .flow-node-icon { background: color-mix(in srgb, var(--node) 16%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--node) 30%, transparent), 0 0 22px -4px var(--node); animation: nova-node 3.2s ease-in-out infinite; }
+.flow-node.selected, .flow-load.selected { box-shadow: var(--shadow), inset 0 0 0 1.5px var(--node, var(--green)), 0 16px 40px -22px var(--node, var(--green)); }
+/* The battery card fills to its state of charge. */
+.flow-node.battery::before { content: ""; position: absolute; inset: auto 0 0; z-index: -1; height: var(--soc, 0%); border-top: 1px solid color-mix(in srgb, var(--node) 55%, transparent); background: linear-gradient(to top, color-mix(in srgb, var(--node) 26%, transparent), color-mix(in srgb, var(--node) 7%, transparent)); transition: height 1.2s var(--ease); }
+/* The inverter carries a turning light while power is flowing. */
+.flow-node.inverter.flowing { overflow: visible; }
+.flow-node.inverter.flowing::before { content: ""; position: absolute; inset: -1px; z-index: -1; padding: 1.5px; border-radius: inherit; background: conic-gradient(from var(--spin), transparent 0 62%, var(--green) 82%, #fff 90%, transparent 96%); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); animation: nova-spin 3.6s linear infinite; }
+.flow-load { border: 1px solid var(--edge); background: var(--surface); box-shadow: var(--shadow); transition: transform .35s var(--ease), box-shadow .25s, border-color .25s; }
+.flow-load:hover { transform: translateY(-2px); }
+.flow-load-track { overflow: hidden; border-radius: 999px; }
+.flow-load-track > i { border-radius: 999px; background: linear-gradient(90deg, var(--green), color-mix(in srgb, var(--green) 55%, var(--spark-solar))); box-shadow: 0 0 12px var(--halo); transition: width .9s var(--ease); }
+.flow-insight { background: color-mix(in srgb, var(--inset) 55%, transparent); }
+
+/* ---------- Device cards, switches, chips ---------- */
+.home-device-grid > .home-device { animation: nova-rise .45s var(--ease) both; }
+.home-device-grid > .home-device:nth-child(2) { animation-delay: 30ms; }
+.home-device-grid > .home-device:nth-child(3) { animation-delay: 60ms; }
+.home-device-grid > .home-device:nth-child(4) { animation-delay: 90ms; }
+.home-device-grid > .home-device:nth-child(n+5) { animation-delay: 120ms; }
+.home-device { overflow: hidden; isolation: isolate; --glow: var(--green); }
+.home-device.lights { --glow: var(--spark-solar); }
+.home-device.climate { --glow: var(--spark-grid); }
+.home-device.water { --glow: #ff8a5c; }
+.home-device.media { --glow: var(--spark-battery); }
+.home-device::before { content: ""; position: absolute; inset: 0; z-index: -1; opacity: 0; background: radial-gradient(220px 150px at 34px 30px, color-mix(in srgb, var(--glow) 24%, transparent), transparent 72%); transition: opacity .6s var(--ease); }
+.home-device.active::before { opacity: 1; }
+.home-device.active, [data-theme="dark"] .home-device.active { border-color: color-mix(in srgb, var(--glow) 38%, var(--line)); box-shadow: var(--shadow), 0 18px 40px -26px var(--glow); }
+.home-device-icon { border-radius: 12px; transition: color .4s, background .4s, box-shadow .4s; }
+.home-device.active .home-device-icon, .home-device.lights.active .home-device-icon, .home-device.climate.active .home-device-icon { color: var(--glow); background: color-mix(in srgb, var(--glow) 16%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--glow) 28%, transparent), 0 0 20px -4px var(--glow); }
+.toggle { border: 1px solid var(--line); background: var(--inset); box-shadow: inset 0 2px 5px #0000002e; transition: background .35s, border-color .35s, box-shadow .35s; }
+.toggle:before { background: linear-gradient(160deg, #fff, #dfe7e2); box-shadow: 0 2px 6px #00000059; transition: transform .45s var(--spring); }
+.toggle[aria-checked="true"] { border-color: transparent; background: linear-gradient(120deg, color-mix(in srgb, var(--green) 82%, #000), var(--green)); box-shadow: inset 0 1px 2px #00000033, 0 0 18px -2px var(--halo); }
+.toggle:active:not(:disabled):before { width: 26px; }
+.state-chip.on::before { box-shadow: 0 0 8px currentColor; }
+.temperature-preset { transition: transform .25s var(--spring), border-color .2s, background .2s; }
+.temperature-preset:hover:not(:disabled) { transform: translateY(-1px); }
+.temperature-preset.current { border-color: var(--green); color: var(--green); box-shadow: 0 0 0 3px var(--halo); }
+.floor-tabs, .room-tabs, .control-categories { border-radius: 14px; }
+.floor-tabs button, .room-tabs button, .control-categories button { border-radius: 11px; transition: color .2s, background .25s, box-shadow .25s; }
+.home-brightness input[type="range"], .modal .field input[type="range"] { accent-color: var(--spark-solar); }
+
+/* ---------- Dialogs, toast ---------- */
+.modal { border: 1px solid var(--edge); border-radius: var(--radius-lg); background: var(--surface-solid); box-shadow: 0 40px 90px -30px #000000b3, inset 0 1px 0 var(--edge); animation: nova-pop .32s var(--ease) both; }
+.toast { border: 1px solid var(--edge); border-radius: 14px; background: color-mix(in srgb, var(--surface-solid) 92%, var(--green)); color: var(--text); box-shadow: 0 20px 50px -20px #000000a6; backdrop-filter: blur(18px); animation: nova-toast .4s var(--spring) both; }
+.toast .icon-button { color: var(--muted); }
+.update-band { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 12px 18px; background: var(--surface); color: var(--text); border: 1px solid var(--edge); }
+
+/* ---------- Command palette ---------- */
+.palette-layer { position: fixed; inset: 0; z-index: 200; display: grid; justify-items: center; align-items: start; padding: min(14vh, 120px) 12px 12px; background: color-mix(in srgb, var(--page-base) 55%, transparent); backdrop-filter: blur(10px) saturate(1.2); animation: nova-fade .2s ease both; }
+.palette { width: min(640px, 100%); max-height: min(560px, calc(100dvh - 40px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--edge); border-radius: 20px; background: var(--surface-solid); box-shadow: 0 50px 110px -30px #000000c7, 0 0 0 1px var(--line), 0 0 80px -30px var(--halo); animation: nova-pop .3s var(--ease) both; }
+.palette-field { display: flex; align-items: center; gap: 12px; padding: 6px 12px 6px 18px; border-bottom: 1px solid var(--line); color: var(--muted); }
+.palette-field input { flex: 1; min-width: 0; min-height: 52px; padding: 0; border: 0; background: transparent; color: var(--text); font-size: 16px; }
+.palette-field input:focus-visible { outline: none; }
+.palette-close { display: grid; place-items: center; min-width: 44px; min-height: 44px; }
+.palette ul { flex: 1; min-height: 0; margin: 0; padding: 8px; overflow-y: auto; list-style: none; }
+.palette-group { display: block; padding: 12px 10px 6px; color: var(--muted); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; }
+.palette-item { position: relative; display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 6px 10px; border-radius: 12px; cursor: pointer; }
+.palette-icon { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 10px; background: var(--inset); color: var(--muted); transition: color .15s, background .15s; }
+.palette-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 520; }
+.palette-item small { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
+.palette-enter { flex: none; color: var(--muted); opacity: 0; }
+.palette-item[aria-selected="true"] { background: linear-gradient(100deg, color-mix(in srgb, var(--green) 16%, transparent), color-mix(in srgb, var(--green) 5%, transparent)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--green) 26%, transparent); }
+.palette-item[aria-selected="true"] .palette-icon { background: color-mix(in srgb, var(--green) 18%, transparent); color: var(--green); }
+.palette-item[aria-selected="true"] .palette-enter { opacity: 1; }
+.palette-empty { padding: 28px 12px; color: var(--muted); font-size: 13px; text-align: center; }
+.palette-foot { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 10px 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11.5px; }
+.palette-foot span { display: inline-flex; align-items: center; gap: 5px; }
+.palette-foot span:last-child { margin-left: auto; }
+
+/* ---------- View transitions ---------- */
+.app-shell main { view-transition-name: page; }
+.topbar { view-transition-name: topbar; }
+::view-transition-group(page), ::view-transition-group(topbar) { animation-duration: .01s; }
+::view-transition-old(page), ::view-transition-new(page) { width: 100%; height: 100%; object-fit: none; object-position: top left; }
+::view-transition-old(page) { animation: nova-page-out .16s cubic-bezier(.4, 0, 1, 1) both; }
+::view-transition-new(page) { animation: nova-page-in .38s var(--ease) both; }
+::view-transition-group(nav-mark), ::view-transition-group(dock-mark) { animation-duration: .42s; animation-timing-function: var(--spring); }
+html[data-vt="theme"] .app-shell main, html[data-vt="theme"] .topbar, html[data-vt="theme"] .nav-mark, html[data-vt="theme"] .dock-mark { view-transition-name: none; }
+html[data-vt="theme"]::view-transition-old(root), html[data-vt="theme"]::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+html[data-vt="theme"]::view-transition-new(root) { z-index: 2; }
+
+/* ---------- Keyframes ---------- */
+@keyframes nova-pulse { 0% { box-shadow: 0 0 0 0 var(--halo); } 70%, 100% { box-shadow: 0 0 0 7px transparent; } }
+@keyframes nova-tone { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--tone) 50%, transparent), 0 0 14px var(--tone); } 70%, 100% { box-shadow: 0 0 0 9px transparent, 0 0 14px var(--tone); } }
+@keyframes nova-breathe { 0%, 100% { opacity: .1; } 50% { opacity: .24; } }
+@keyframes nova-node { 50% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--node) 45%, transparent), 0 0 30px 0 var(--node); } }
+@keyframes nova-spark { to { stroke-dashoffset: -72; } }
+@keyframes nova-spark-head { from { stroke-dashoffset: -24; } to { stroke-dashoffset: -96; } }
+@keyframes nova-spin { to { --spin: 360deg; } }
+@keyframes nova-fade { from { opacity: 0; } }
+@keyframes nova-rise { from { opacity: 0; transform: translateY(8px); } }
+@keyframes nova-pop { from { opacity: 0; transform: translateY(10px) scale(.975); } }
+@keyframes nova-toast { from { opacity: 0; transform: translate(-50%, 14px) scale(.96); } }
+@keyframes nova-brief { from { opacity: 0; filter: blur(6px); transform: translateY(4px); } }
+@keyframes nova-ring { from { stroke-dashoffset: 188.5; } }
+@keyframes nova-page-out { to { opacity: 0; transform: translateY(-6px); filter: blur(4px); } }
+@keyframes nova-page-in { from { opacity: 0; transform: translateY(14px); filter: blur(6px); } }
+
+/* ---------- Small screens ---------- */
+@media (max-width: 800px) {
+  .topbar { border-radius: 16px; }
+  .home-welcome { padding-top: 10px; align-items: flex-start; }
+  .home-welcome h1 { font-size: 30px; }
+  .home-brief { font-size: 14.5px; }
+  .home-side { width: 100%; justify-content: space-between; gap: 12px; }
+  .live-power-strip strong { font-size: 25px; }
+  .palette-trigger kbd { display: none; }
+  .palette-layer { padding-top: 10px; }
+  .palette-foot span:not(:last-child) { display: none; }
+  .palette-field input { font-size: 16px; }
+  .flow-diagram { height: 350px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  .flow-tail, .flow-spark, .flow-node.inverter.flowing::before { animation: none !important; }
+  .flow-glow { opacity: .16; }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+}
+
+/* ---------- Direct light switches ---------- */
+.toggle.busy:before { animation: nova-busy .7s ease-in-out infinite alternate; }
+@keyframes nova-busy { to { opacity: .45; } }
+
+/* ---------- Tesla page (read-only) ---------- */
+.tesla-page { padding: 18px 0 8px; }
+.tesla-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+.tesla-head h1 { margin: 8px 0 8px; font-size: clamp(28px, 3.2vw, 40px); font-weight: 580; letter-spacing: -.035em; }
+.tesla-note { margin: 0; color: var(--muted); font-size: 13px; }
+.tesla-status { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding: 4px 13px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 12.5px; font-weight: 550; }
+.tesla-status.on { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+.tesla-status.sleep { color: var(--spark-grid); }
+.tesla-empty { margin: 0 0 16px; padding: 12px 16px; border: 1px solid var(--edge); border-radius: var(--radius); background: var(--surface); color: var(--muted); font-size: 13px; }
+.tesla-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.tesla-card { position: relative; display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 20px; border: 1px solid var(--edge); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow); animation: nova-rise .45s var(--ease) both; }
+.tesla-label { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12.5px; }
+.tesla-card strong { font-size: 38px; font-weight: 560; line-height: 1.05; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.tesla-card strong small { font-size: 14px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+.tesla-card strong.tesla-where { font-size: 28px; overflow-wrap: anywhere; }
+.tesla-sub { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; }
+.tesla-card dl { display: grid; gap: 0; margin: 8px 0 0; }
+.tesla-card dl > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.tesla-card dt { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); }
+.tesla-card dd { margin: 0; font-weight: 560; text-align: right; font-variant-numeric: tabular-nums; }
+.tesla-level { position: relative; height: 12px; margin: 6px 0 2px; border-radius: 999px; background: var(--inset); }
+.tesla-level > i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--spark-load), color-mix(in srgb, var(--spark-load) 60%, var(--spark-solar))); box-shadow: 0 0 16px var(--halo); transition: width 1s var(--ease); }
+.tesla-level > b { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; border-radius: 2px; background: var(--text); opacity: .7; }
+.tesla-battery.charging .tesla-level > i { animation: nova-breathe-bar 1.8s ease-in-out infinite; }
+@keyframes nova-breathe-bar { 50% { filter: brightness(1.35); } }
+.tesla-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.tesla-pair > div { display: flex; flex-direction: column; gap: 6px; }
+.tesla-place .button { align-self: flex-start; margin-top: 6px; text-decoration: none; }
+@media (max-width: 1100px) { .tesla-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .tesla-grid { grid-template-columns: 1fr; } .tesla-card strong { font-size: 32px; } }
+
+/* ---------- Arrange mode ---------- */
+.room-command-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.arrange-toggle { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; }
+.arrange-toggle.selected { color: var(--green); border-color: var(--green); box-shadow: 0 0 0 3px var(--halo); }
+.arrange-bar { position: sticky; top: calc(88px + env(safe-area-inset-top, 0px)); z-index: 12; display: flex; align-items: center; gap: 12px 18px; flex-wrap: wrap; margin: 14px 0; padding: 12px 14px 12px 18px; border: 1px solid color-mix(in srgb, var(--green) 35%, var(--edge)); border-radius: var(--radius); background: var(--surface-solid); box-shadow: var(--shadow), 0 18px 40px -24px var(--halo); animation: nova-pop .3s var(--ease) both; }
+.arrange-hint { flex: 1 1 260px; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.arrange-sorts { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 11px; background: var(--inset); }
+.arrange-sorts button { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 4px 11px; border-radius: 8px; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+.arrange-sorts button[aria-checked="true"] { background: var(--raised); color: var(--green); box-shadow: inset 0 1px 0 var(--edge), 0 4px 10px -6px #00000059; font-weight: 600; }
+.sortable { position: relative; min-width: 0; touch-action: pan-y; }
+.sortable-card { height: 100%; }
+.sortable-card > * { height: 100%; animation: none !important; }
+.sortable .home-device, .sortable .device-card { outline: 1.5px dashed color-mix(in srgb, var(--green) 45%, transparent); outline-offset: -1px; }
+.sortable:not(.dragging) .sortable-card { animation: nova-wiggle .5s var(--ease) both; }
+.sortable.dragging { z-index: 5; }
+.sortable.dragging .sortable-card > * { transform: scale(1.025); box-shadow: 0 30px 60px -24px #000000a6, 0 0 0 2px var(--green); }
+.arrange-overlay { position: absolute; top: 8px; right: 8px; z-index: 2; display: flex; align-items: center; gap: 6px; padding: 4px; border: 1px solid var(--edge); border-radius: 12px; background: color-mix(in srgb, var(--surface-solid) 92%, transparent); box-shadow: 0 8px 22px -10px #00000080; backdrop-filter: blur(10px); }
+.arrange-handle { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 9px; color: var(--green); cursor: grab; touch-action: none; }
+.sortable.dragging .arrange-handle { cursor: grabbing; }
+.arrange-handle:hover, .arrange-handle:focus-visible { background: var(--inset); }
+.arrange-place, .arrange-uses { min-width: 24px; font-family: var(--mono); font-size: 11.5px; text-align: center; color: var(--muted); }
+.arrange-uses { padding: 2px 6px; border-radius: 999px; background: color-mix(in srgb, var(--green) 14%, transparent); color: var(--green); }
+.arrange-steps { display: flex; gap: 2px; }
+.arrange-steps button, .group-steps button { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 8px; color: var(--muted); }
+.arrange-steps button:hover:not(:disabled), .group-steps button:hover:not(:disabled) { background: var(--inset); color: var(--text); }
+.group-steps { display: inline-flex; gap: 2px; margin-left: 10px; }
+.home-device-group.arranging > header { display: flex; align-items: center; }
+.home-device-group.arranging > header > small { margin-left: auto; }
+@keyframes nova-wiggle { 30% { transform: rotate(-.4deg); } 70% { transform: rotate(.4deg); } }
+@media (max-width: 800px) {
+  .arrange-bar { top: calc(80px + env(safe-area-inset-top, 0px)); padding: 10px 12px; }
+  .arrange-hint { display: none; }
+  .arrange-sorts { flex: 1; }
+  .arrange-sorts button { flex: 1; justify-content: center; padding: 4px 6px; font-size: 11.5px; }
+  .arrange-sorts button svg { display: none; }
+  .arrange-bar > .button { flex: 1 0 100%; justify-content: center; }
+}
+
+/* ---------- Battery panel (read-only, BMS data via the inverter) ---------- */
+.battery-page { padding: 18px 0 8px; }
+.battery-alert { display: flex; align-items: flex-start; gap: 10px; margin: 0 0 14px; padding: 12px 16px; border: 1px solid color-mix(in srgb, var(--spark-grid) 40%, var(--edge)); border-radius: var(--radius); background: color-mix(in srgb, var(--spark-grid) 10%, var(--surface)); font-size: 13.5px; line-height: 1.5; }
+.battery-alert svg { flex: none; margin-top: 2px; color: var(--spark-grid); }
+.battery-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.battery-hero { grid-row: span 2; align-items: flex-start; }
+.battery-gauge { position: relative; width: 92px; height: 170px; margin: 8px auto 6px; border: 2px solid var(--line); border-radius: 18px; background: var(--inset); overflow: visible; }
+.battery-gauge::before { content: ""; position: absolute; top: -9px; left: 50%; width: 34px; height: 7px; margin-left: -17px; border-radius: 4px 4px 0 0; background: var(--line); }
+.battery-gauge > i { position: absolute; inset: auto 4px 4px; max-height: calc(100% - 8px); border-radius: 12px; background: linear-gradient(to top, var(--energy-battery), color-mix(in srgb, var(--energy-battery) 55%, #fff)); box-shadow: 0 0 22px color-mix(in srgb, var(--energy-battery) 45%, transparent); transition: height 1.2s var(--ease); }
+.battery-gauge > i.charging { animation: nova-breathe-bar 1.8s ease-in-out infinite; }
+.battery-gauge > b { position: absolute; left: -6px; right: -6px; height: 2px; background: var(--text); opacity: .65; }
+.battery-gauge > b > span { position: absolute; left: calc(100% + 8px); top: -8px; white-space: nowrap; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.battery-hero > strong { align-self: center; }
+.battery-hero dl { width: 100%; }
+.battery-limit { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 4px 12px; margin-top: 6px; }
+.battery-limit > span { color: var(--muted); font-size: 13px; }
+.battery-limit > strong { font-size: 20px !important; }
+.battery-bar { grid-column: 1 / -1; height: 8px; border-radius: 999px; background: var(--inset); overflow: hidden; }
+.battery-bar > i { display: block; height: 100%; border-radius: 999px; background: var(--energy-load); transition: width 1s var(--ease); }
+.battery-bar.low > i { background: var(--spark-grid); }
+.tesla-card dd.warn { color: var(--status-bad); }
+.battery-history { margin-top: 16px; padding: 20px; }
+.battery-history-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.battery-history-head h2 { margin: 6px 0 0; font-size: 18px; }
+.battery-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 22px; }
+.battery-chart { margin: 0; min-width: 0; }
+.battery-chart figcaption { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 6px; font-size: 12.5px; }
+.battery-chart figcaption span { display: inline-flex; align-items: center; gap: 7px; }
+.battery-chart figcaption i { width: 12px; height: 3px; border-radius: 2px; }
+.battery-chart figcaption small { color: var(--muted); }
+.battery-chart-body { height: 170px; }
+.battery-chart-empty { display: grid; place-items: center; height: 170px; margin: 0; color: var(--muted); font-size: 12.5px; border: 1px dashed var(--line); border-radius: var(--radius); }
+.battery-note { display: flex; gap: 8px; align-items: flex-start; margin: 14px 2px 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.battery-note svg { flex: none; margin-top: 2px; }
+.flow-node.battery { cursor: pointer; }
+@media (max-width: 1100px) { .battery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .battery-grid, .battery-charts { grid-template-columns: 1fr; } .battery-hero { grid-row: auto; } }
+
+/* ---------- Tesla journal: tabs, limit, charges, drives, stats ---------- */
+.tesla-tabs { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 16px; }
+.tesla-tabs .finance-tabs { margin: 0; }
+.tesla-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0 0 14px; }
+.tesla-kpis > div { display: grid; gap: 4px; padding: 14px 16px; border: 1px solid var(--edge); border-radius: var(--radius); background: var(--surface); }
+.tesla-kpis span { color: var(--muted); font-size: 12.5px; }
+.tesla-kpis strong { font-size: 24px; font-variant-numeric: tabular-nums; }
+.tesla-kpis strong small { font-size: 13px; color: var(--muted); font-weight: 500; }
+.tesla-kpis > div > small { color: var(--muted); font-size: 12px; }
+.tesla-live { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; padding: 10px 14px; border-radius: var(--radius); background: color-mix(in srgb, var(--energy-load) 12%, var(--surface)); font-size: 13.5px; }
+.tesla-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.tesla-list > li { border: 1px solid var(--edge); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.tesla-list > li.open { border-color: color-mix(in srgb, var(--energy-load) 45%, var(--edge)); }
+.tesla-row { all: unset; box-sizing: border-box; cursor: pointer; width: 100%; display: grid; grid-template-columns: 118px minmax(0, 1.6fr) 80px 90px minmax(70px, 1fr) 92px; align-items: center; gap: 12px; padding: 12px 16px; font-size: 13.5px; }
+.tesla-row:focus-visible { outline: 2px solid var(--energy-load); outline-offset: -2px; }
+.tesla-row .when { display: grid; gap: 2px; }
+.tesla-row .when small { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.tesla-row .where { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.tesla-row .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tesla-row .num.cost em { color: var(--muted); font-style: normal; font-size: 12px; }
+.charge-split { display: flex; height: 8px; border-radius: 999px; overflow: hidden; background: var(--inset); gap: 2px; }
+.charge-split i { display: block; height: 100%; }
+.charge-split i.solar { background: var(--energy-solar); }
+.charge-split i.battery { background: var(--energy-battery); }
+.charge-split i.grid { background: var(--energy-grid); }
+.split-note { color: var(--muted); font-size: 12px; }
+.tesla-detail { padding: 4px 16px 14px; border-top: 1px dashed var(--line); }
+.tesla-detail dl { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px 18px; margin: 10px 0 0; }
+.tesla-detail dl div { display: grid; gap: 2px; }
+.tesla-detail dt { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.tesla-detail dd { margin: 0; font-size: 13.5px; }
+.price-editor { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-top: 12px; }
+.price-editor label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.price-editor input { width: 150px; padding: 7px 10px; border: 1px solid var(--edge); border-radius: 8px; background: var(--inset); color: var(--text); font: inherit; }
+.price-editor small { color: var(--muted); }
+.tesla-map { height: 360px; border-radius: var(--radius); border: 1px solid var(--edge); margin: 0 0 12px; overflow: hidden; z-index: 0; }
+.tesla-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 22px; }
+.tesla-stats > .battery-note, .tesla-stats > .tesla-table { grid-column: 1 / -1; }
+.tesla-chart-body { height: 240px; }
+.tesla-table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.tesla-table caption { text-align: left; font-weight: 600; padding: 0 0 8px; }
+.tesla-table th, .tesla-table td { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: right; }
+.tesla-table th:first-child, .tesla-table td:first-child { text-align: left; }
+.tesla-table th { color: var(--muted); font-weight: 500; }
+.tesla-limit input[type=range] { width: 100%; accent-color: var(--energy-load); margin: 6px 0 2px; }
+.tesla-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+.tesla-limit > small { color: var(--muted); font-size: 12px; }
+@media (max-width: 900px) {
+  .tesla-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tesla-row { grid-template-columns: 1fr auto; grid-auto-rows: auto; gap: 6px 12px; }
+  .tesla-row .where { grid-column: 1 / -1; order: 5; }
+  .tesla-row .charge-split { grid-column: 1 / -1; order: 6; }
+  .tesla-stats { grid-template-columns: 1fr; }
+  .tesla-map { height: 280px; }
+}
+.tesla-tabs .finance-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; max-width: 100%; }
+.tesla-tabs .finance-tabs button { white-space: nowrap; }
+@media (max-width: 600px) { .tesla-tabs .finance-tabs button { padding-left: 10px; padding-right: 10px; } .tesla-tabs .segmented { width: 100%; } }
+@media (max-width: 600px) { .tesla-tabs .finance-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; } .tesla-tabs .finance-tabs button { padding: 10px 2px; font-size: 12px; } }
+
+/* ---------- Battery cells over Bluetooth ---------- */
+.battery-ble { margin-top: 16px; }
+.battery-cells { display: grid; grid-template-columns: repeat(16, 1fr); gap: 5px; align-items: end; margin: 6px 0 16px; }
+.battery-cell { display: grid; justify-items: center; gap: 4px; min-width: 0; }
+.battery-cell .cv { font-family: var(--mono); font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.battery-cell .cell-bar { width: 100%; height: 86px; display: flex; align-items: flex-end; background: var(--inset); border-radius: 6px; overflow: hidden; }
+.battery-cell .cell-bar > i { width: 100%; background: var(--energy-battery); border-radius: 6px 6px 0 0; transition: height .8s var(--ease); }
+.battery-cell .cn { font-size: 10px; color: var(--muted); }
+.battery-cell.high .cell-bar > i { background: var(--energy-solar); }
+.battery-cell.low .cell-bar > i { background: var(--energy-grid); }
+.battery-cell.high .cv, .battery-cell.low .cv { color: var(--text); font-weight: 600; }
+.battery-ble-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.ble-stat { display: grid; gap: 3px; padding: 12px 14px; border: 1px solid var(--edge); border-radius: var(--radius); background: var(--surface); }
+.ble-stat > span { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; }
+.ble-stat strong { font-size: 17px; font-variant-numeric: tabular-nums; }
+.ble-stat strong.heater { font-size: 14px; line-height: 1.35; }
+.ble-stat strong small { font-size: 12px; color: var(--muted); font-weight: 500; }
+.ble-stat > small { color: var(--muted); font-size: 11.5px; }
+.battery-settings { border-top: 1px dashed var(--line); padding-top: 12px; }
+.battery-settings h3 { display: flex; align-items: center; gap: 7px; margin: 0 0 10px; font-size: 14px; }
+.battery-settings dl { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px 18px; margin: 0; }
+.battery-settings dl div { display: grid; gap: 2px; }
+.battery-settings dt { color: var(--muted); font-size: 12px; }
+.battery-settings dd { margin: 0; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+@media (max-width: 760px) {
+  .battery-cells { grid-template-columns: repeat(8, 1fr); gap: 6px 4px; }
+  .battery-cell .cv { font-size: 9.5px; }
+  .battery-ble-grid { grid-template-columns: 1fr; }
+}
+
+/* ---------- Tesla: Fleet Telemetry (live status, speed map, profile) ---------- */
+.tesla-telemetry { display: grid; gap: 8px; align-content: start; }
+.tesla-telemetry .tesla-status { justify-self: start; }
+.tesla-telemetry .tesla-status i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.tesla-telemetry .tesla-status i.pulse { animation: tesla-pulse 1.6s ease-in-out infinite; }
+@keyframes tesla-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.7); } }
+.tesla-budget { height: 8px; border-radius: 999px; background: var(--inset); overflow: hidden; }
+.tesla-budget i { display: block; height: 100%; min-width: 2px; border-radius: inherit; background: var(--energy-load); transition: width .4s ease; }
+.tesla-budget i.warn { background: var(--status-bad); }
+.tesla-telemetry > small.tesla-sub { font-size: 11.5px; }
+.speed-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: -4px 0 12px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.speed-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.speed-legend i { width: 18px; height: 5px; border-radius: 3px; display: inline-block; }
+.speed-profile { margin: 14px 0 0; }
+.speed-profile-body { height: 170px; }
+.tesla-live-drive { margin: 0 0 12px; }
+.tesla-live-drive .tesla-live { margin-bottom: 8px; }
+.tesla-live .live-speed { margin-left: auto; font-size: 18px; font-variant-numeric: tabular-nums; }
+.tesla-map.compact { height: 220px; }
+.tesla-row .where .src-live { flex: none; color: var(--energy-load); }
+.tesla-detail .dd-note { display: block; color: var(--muted); font-size: 11.5px; }
+@media (prefers-reduced-motion: reduce) {
+  .tesla-telemetry .tesla-status i.pulse { animation: none; }
+  .tesla-budget i { transition: none; }
+}

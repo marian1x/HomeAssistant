@@ -1,0 +1,13 @@
+# fleet-telemetry may only publish vehicle data.
+user telemetry
+topic write tesla/#
+
+# Pi5 maintenance scripts (update check) may only publish status.
+user ops
+topic write ops/fleet-telemetry/#
+
+# Home Assistant reads both; it may announce its own status (MQTT integration birth message).
+user homeassistant
+topic read tesla/#
+topic read ops/fleet-telemetry/#
+topic readwrite homeassistant/status

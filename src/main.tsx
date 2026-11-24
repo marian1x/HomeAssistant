@@ -59,12 +59,18 @@ import {
   Pause,
   VolumeX,
   Wallet,
+  Command,
+  ArrowUpDown,
 } from "lucide-react";
 import HomeDashboard from "./HomeDashboard";
 import EnergyPolicy from "./EnergyPolicy";
 import EnergyEconomics from "./EnergyEconomics";
 import EnergyHistory from "./EnergyHistory";
 import LocalLogin from "./LocalLogin";
+import Tesla from "./Tesla";
+import BatteryPanel from "./Battery";
+import { EMPTY, type Layout, arrange, move } from "./arrange";
+import { ArrangeBar, Sortable, useSortable } from "./ArrangeMode";
 import { LOCAL_ROLES, LocalUsers, PasswordChange } from "./LocalUsers";
 import {
   Snapshot,
@@ -83,10 +89,20 @@ import {
   houseRooms,
   inLocation,
   deviceReading,
+  controllable,
+  controlCategory,
 } from "./model";
+import Aurora from "./Aurora";
+import { auroraMix } from "./aurora-mix";
+import CommandPalette, { type PaletteItem } from "./CommandPalette";
+import { energyFlow } from "./energy-flow";
+import { morph, reveal, useSpotlight } from "./motion";
+import "@fontsource-variable/geist/wght.css";
+import "@fontsource-variable/geist-mono/wght.css";
 import "./style.css";
 import "./spatial.css";
 import "./theme.css";
+import "./nova.css";
 
 const BASE = import.meta.env.BASE_URL;
 // Pages are addressed by hash so reload, links and the phone back button keep the page.
@@ -95,6 +111,8 @@ const routes: Record<string, string> = {
   energy: "energie",
   economics: "costuri",
   policy: "politica",
+  tesla: "tesla",
+  battery: "baterie",
   devices: "dispozitive",
   rules: "automatizari",
   audit: "jurnal",
@@ -120,6 +138,8 @@ const titles: Record<string, string> = {
   overview: "Privire de ansamblu",
   energy: "Energie",
   policy: "Politica Energie",
+  tesla: "Tesla",
+  battery: "Baterie",
   economics: "Costuri si prognoza",
   devices: "Dispozitive",
   rules: "Automatizari",
@@ -148,8 +168,11 @@ const parts: Record<string, { name: string; sub: string; icon: any }> = {
 };
 function App() {
   const [theme, setTheme] = useState(() => {
-    try { return localStorage.getItem("casa-theme") === "dark" ? "dark" : "light"; }
-    catch { return "light"; }
+    try {
+      const saved = localStorage.getItem("casa-theme");
+      if (saved === "dark" || saved === "light") return saved;
+      return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    } catch { return "light"; }
   });
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -173,7 +196,42 @@ function App() {
     [area, setArea] = useState("all"),
     [deviceFloor, setDeviceFloor] = useState("all"),
     [audit, setAudit] = useState<any[]>([]),
-    [users, setUsers] = useState<any[]>([]);
+    [users, setUsers] = useState<any[]>([]),
+    [palette, setPalette] = useState(false),
+    [layout, setLayout] = useState<Layout>(EMPTY),
+    [arrangeInventory, setArrangeInventory] = useState(false);
+  const userId = data?.user?.id || "";
+  const layoutKey = "casa-layout:" + userId;
+  const layoutTimer = React.useRef<number>(0);
+  // Order is cached per account for an instant first paint; the server copy wins.
+  useEffect(() => {
+    if (!userId) return;
+    try { const cached = localStorage.getItem(layoutKey); if (cached) setLayout({ ...EMPTY, ...JSON.parse(cached) }); } catch { /* storage off */ }
+    fetch(BASE + "api/layout").then((r) => (r.ok ? r.json() : null)).then((saved) => saved && setLayout({ ...EMPTY, ...saved })).catch(() => {});
+  }, [userId]);
+  useEffect(() => { if (userId) try { localStorage.setItem(layoutKey, JSON.stringify(layout)); } catch { /* storage off */ } }, [layout, userId]);
+  const refreshUsage = () => fetch(BASE + "api/layout").then((r) => (r.ok ? r.json() : null)).then((saved) => saved && setLayout((now) => ({ ...now, usage: saved.usage || {}, usage_days: saved.usage_days }))).catch(() => {});
+  const changeLayout = (change: Partial<Layout>) => setLayout((now) => {
+    const next = { ...now, ...change };
+    clearTimeout(layoutTimer.current);
+    layoutTimer.current = window.setTimeout(() => {
+      post("layout", { sort: next.sort, order: next.order, groups: next.groups }).catch((e) => setNotice(e.message));
+    }, 400);
+    return next;
+  });
+  useSpotlight();
+  // The theme opens as a circle from the pressed control (View Transitions, where available).
+  const switchTheme = (next: string, origin: { clientX: number; clientY: number } | null) => {
+    if (next === theme) return;
+    reveal(origin, () => { document.documentElement.dataset.theme = next; setTheme(next); });
+  };
+  useEffect(() => {
+    const keys = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "k") { event.preventDefault(); setPalette((open) => !open); }
+    };
+    window.addEventListener("keydown", keys);
+    return () => window.removeEventListener("keydown", keys);
+  }, []);
   const role = data?.user?.role || "viewer";
   const canControl = !!data?.connected && role !== "viewer",
     canConfigure =
@@ -185,13 +243,13 @@ function App() {
   const haAdmin = data?.user?.admin ?? (role === "configure" && !localAccount);
   const roleName = localAccount ? LOCAL_ROLES[role] || "Vizualizare" : role === "configure" ? "Administrator" : role === "control" ? "User" : "Vizualizare";
   const go = (view: string, replace = false) => {
-    setTab(view);
+    if (view !== tab) morph(() => setTab(view)); else setTab(view);
     const url = routes[view] ? "#" + routes[view] : location.pathname + location.search;
     if (tabFromHash() !== view || (!routes[view] && location.hash))
       window.history[replace ? "replaceState" : "pushState"](null, "", url);
   };
   useEffect(() => {
-    const sync = () => { setTab(tabFromHash()); setMobile(false); };
+    const sync = () => { morph(() => setTab(tabFromHash())); setMobile(false); };
     window.addEventListener("popstate", sync);
     return () => window.removeEventListener("popstate", sync);
   }, []);
@@ -328,6 +386,23 @@ function App() {
   const s = (key: string) => data?.states[(data?.bindings || bindings)[key]];
   const ask = (entity_id: string, action: string, v: any, title: string) =>
     setDialog({ kind: "command", entity_id, action, value: v, title });
+  // Owner decision 2026-11-10: lights act on the first press, without a confirmation
+  // dialog. Climate, boiler, sockets and everything else still ask. The switch moves only
+  // when HA reports the new state (no optimistic state); the server checks role and limits.
+  const [sending, setSending] = useState<Record<string, true>>({});
+  const isLight = (entity_id: string) => entity_id.startsWith("light.") || allDevices.some((d) => d.primary.entity_id === entity_id && controlCategory(d) === "lights");
+  async function send(entity_id: string, action: string, v?: any) {
+    if (sending[entity_id]) return;
+    setSending((now) => ({ ...now, [entity_id]: true }));
+    try {
+      await post("command", { entity_id, action, ...(v !== undefined ? { value: v } : {}) });
+      try { navigator.vibrate?.(12); } catch { /* no haptics */ }
+    } catch (e: any) {
+      setNotice(e.message);
+    } finally {
+      setSending((now) => { const next = { ...now }; delete next[entity_id]; return next; });
+    }
+  }
   async function confirm() {
     setPending(true);
     try {
@@ -352,13 +427,14 @@ function App() {
     if (["switch", "light", "fan"].includes(domain))
       return (
         <button
-          className="toggle"
+          className={"toggle" + (sending[state.entity_id] ? " busy" : "")}
           role="switch"
           aria-label={name(state)}
           aria-checked={state.state === "on"}
+          aria-busy={!!sending[state.entity_id]}
           disabled={unavailable}
           onClick={() =>
-            ask(
+            isLight(state.entity_id) ? send(state.entity_id, state.state === "on" ? "turn_off" : "turn_on") : ask(
               state.entity_id,
               state.state === "on" ? "turn_off" : "turn_on",
               undefined,
@@ -626,6 +702,8 @@ function App() {
           .toLowerCase()
           .includes(filter.toLowerCase()),
     );
+  const inventorySorter = useSortable((ids, id, to) => changeLayout({ sort: "manual", order: move(layout.sort === "manual" ? layout.order : arrange(allDevices, layout).map((d) => d.id), ids, id, to) }));
+  const usesOf = (d: Device) => Object.entries(layout.usage).reduce((n, [entity, count]) => n + (d.primary.entity_id === entity || d.entries.some((e) => e.entity_id === entity) ? count : 0), 0);
   const loginButton = (
     <div className="login-choices">
       <a className="button primary" href={BASE + "auth/login"}>
@@ -1178,7 +1256,31 @@ function App() {
       </div>
     );
   }
+  // Pages, devices and actions offered by the command palette (Ctrl/Cmd+K).
+  const paletteItems = (): PaletteItem[] => [
+    ...([["overview", "Acasa", House], ["energy", "Energie", Zap], ["economics", "Costuri si prognoza", Wallet], ["policy", "Politica Energie", Gauge], ["tesla", "Tesla", Car], ["battery", "Baterie", Battery],
+      ["devices", "Dispozitive", LayoutGrid], ["rules", "Automatizari", Workflow], ["settings", "Setari", Settings],
+      ...(adminMode && haAdmin ? [["audit", "Jurnal", History]] : [])] as any[]).map(([key, title, icon]) => (
+      { id: "page-" + key, group: "Pagini", title, icon, always: true, run: () => navigate(key) })),
+    { id: "theme", group: "Actiuni", title: theme === "dark" ? "Aspect luminos" : "Aspect intunecat", icon: theme === "dark" ? Sun : Moon,
+      keywords: "tema dark light noapte zi culori", always: true, run: () => switchTheme(theme === "dark" ? "light" : "dark", null) },
+    ...(role === "configure" ? [{ id: "mode", group: "Actiuni", title: adminMode ? "Revino la modul User" : "Activeaza modul Admin", icon: ShieldCheck,
+      keywords: "administrare configurare", always: true, run: () => { setMode(adminMode ? "control" : "configure"); if (tab === "audit") go("overview", true); } }] : []),
+    ...allDevices.filter(controllable).flatMap((d): PaletteItem[] => {
+      const state = d.primary, domain = state.entity_id.split(".")[0], on = state.state === "on";
+      const placed = !!d.area && d.area !== "Fara camera", place = placed ? d.floor + " / " + d.area : "Fara camera";
+      const show: PaletteItem = { id: "device-" + d.id, group: "Dispozitive", title: d.name, hint: place + " · " + deviceReading(d), icon: ({ lights: Lightbulb, climate: Thermometer, water: Flame, media: Volume2, mobility: Car } as Record<string, any>)[controlCategory(d)] || Plug,
+        keywords: d.manufacturer, run: () => navigate("overview", placed ? d.area : "all", placed ? d.floor : "all") };
+      // Same behaviour as the switch on the page: lights act directly, the rest ask.
+      return ["switch", "light", "fan"].includes(domain) && canControl && valid(state) && !pending
+        ? [show, { id: "command-" + d.id, group: "Comenzi", title: (on ? "Opreste " : "Porneste ") + d.name, hint: isLight(state.entity_id) ? "direct" : "cere confirmare", icon: Power,
+            run: () => isLight(state.entity_id) ? send(state.entity_id, on ? "turn_off" : "turn_on") : ask(state.entity_id, on ? "turn_off" : "turn_on", undefined, (on ? "Opresti " : "Pornesti ") + d.name + "?") }]
+        : [show];
+    }),
+  ];
   return (
+    <>
+    <Aurora mix={auroraMix(energyFlow(data, allDevices))} dark={theme === "dark"} />
     <div className="app-shell">
       <aside className={"sidebar " + (mobile ? "open" : "")}>
         <a href={BASE} className="brand">
@@ -1196,6 +1298,7 @@ function App() {
             ["energy", "Energie", "Energie", Zap],
             ["economics", "Costuri si prognoza", "Costuri", Wallet],
             ["policy", "Politica Energie", "Politica", Gauge],
+            ["tesla", "Tesla", "Tesla", Car],
             ["devices", "Dispozitive", "Dispozitive", LayoutGrid],
             ["rules", "Automatizari", "Reguli", Workflow],
             ...(adminMode && haAdmin ? [["audit", "Jurnal", "Jurnal", History]] : []),
@@ -1306,9 +1409,12 @@ function App() {
             <Search size={15}/><input type="search" aria-label="Cautare rapida" placeholder="Cauta un dispozitiv..." value={quickQuery} disabled={!data} onChange={event => setQuickQuery(event.target.value)}/><button type="submit" title="Cauta" aria-label="Cauta" disabled={!data}><ArrowUpRight size={15}/></button>
           </form>
           <div className="top-tools">
+            <button className="palette-trigger" title="Comenzi rapide (Ctrl+K)" aria-label="Comenzi rapide" aria-haspopup="dialog" disabled={!data} onClick={() => setPalette(true)}>
+              <Command size={15}/><kbd>K</kbd>
+            </button>
             <div className="theme-toggle" role="group" aria-label="Aspect">
-              <button title="Aspect luminos" aria-label="Aspect luminos" aria-pressed={theme === "light"} onClick={() => setTheme("light")}><Sun size={15}/></button>
-              <button title="Aspect intunecat" aria-label="Aspect intunecat" aria-pressed={theme === "dark"} onClick={() => setTheme("dark")}><Moon size={15}/></button>
+              <button title="Aspect luminos" aria-label="Aspect luminos" aria-pressed={theme === "light"} onClick={(event) => switchTheme("light", event)}><Sun size={15}/></button>
+              <button title="Aspect intunecat" aria-label="Aspect intunecat" aria-pressed={theme === "dark"} onClick={(event) => switchTheme("dark", event)}><Moon size={15}/></button>
             </div>
             <span className={"connection " + (data?.connected ? "live" : "")}>
               <i className="status-dot" />
@@ -1387,10 +1493,14 @@ function App() {
               room={area} floor={deviceFloor} onLocation={(floor,room)=>{setDeviceFloor(floor);setArea(room);}}
               canControl={canControl && !pending} control={entityControl}
               temperature={(entity, target) => setDialog({kind: "temperature", entity, value: target, title: name(entity)})}
-              brightness={(entity, percent) => ask(entity.entity_id, "set_brightness", percent, `Setezi luminozitatea ${name(entity)} la ${percent}%?`)}
-              navigate={navigate}/>
+              brightness={(entity, percent) => send(entity.entity_id, "set_brightness", percent)}
+              navigate={navigate} layout={layout} onLayout={changeLayout} onArrange={refreshUsage}/>
             {chart()}
           </>
+        ) : tab === "tesla" ? (
+          <Tesla data={data} />
+        ) : tab === "battery" ? (
+          <BatteryPanel data={data} />
         ) : tab === "energy" ? (
           <>
             {stats(true)}
@@ -1411,7 +1521,7 @@ function App() {
                     ["grid", "import", "Import", Cable, "kW", `Export ${format(value(data, "export"), 2)} kW`],
                     ["tesla", "tesla", "Tesla", Car, "kW", "Putere incarcare"],
                   ].map(([id, key, title, Icon, unit, detail]: any) => (
-                    <button key={id} className={"energy-instrument " + id + (selected === id ? " selected" : "")} onClick={() => setSelected(id)} aria-pressed={selected === id}>
+                    <button key={id} className={"energy-instrument " + id + (selected === id ? " selected" : "")} onClick={() => id === "battery" ? navigate("battery") : setSelected(id)} aria-pressed={selected === id}>
                       <span className="instrument-icon"><Icon size={24} /></span>
                       <span className="instrument-name">{title}</span>
                       <strong>{format(value(data, key))}<small> {unit}</small></strong>
@@ -1443,6 +1553,7 @@ function App() {
                     onChange={(e) => setFilter(e.target.value)}
                   />
                 </label>
+                {data && <button className={"button arrange-toggle" + (arrangeInventory ? " selected" : "")} aria-pressed={arrangeInventory} onClick={() => { if (!arrangeInventory) refreshUsage(); setArrangeInventory(!arrangeInventory); }}><ArrowUpDown size={16} />Aranjeaza</button>}
                 <select
                   aria-label="Camera"
                   value={area}
@@ -1464,7 +1575,13 @@ function App() {
                 {loginButton}
               </div>
             ) : shown.length ? (
-              <div className="device-grid">{shown.map(deviceCard)}</div>
+              <>
+              {arrangeInventory && <ArrangeBar sort={layout.sort} days={layout.usage_days || 30} onSort={(sort) => changeLayout({ sort })} onDone={() => setArrangeInventory(false)} />}
+              <div className={"device-grid" + (arrangeInventory ? " arranging" : "")}>{arrangeInventory
+                ? inventorySorter.preview("inventory", arrange(shown, layout).map((d) => d.id)).map((id) => { const d = shown.find((x) => x.id === id)!; const ids = arrange(shown, layout).map((x) => x.id);
+                    return <Sortable key={id} sorter={inventorySorter} scope="inventory" ids={ids} id={id} name={d.name} uses={layout.sort === "usage" ? usesOf(d) : null}>{deviceCard(d)}</Sortable>; })
+                : arrange(shown, layout).map(deviceCard)}</div>
+              </>
             ) : (
               <div className="empty-state">
                 <Search />
@@ -1539,7 +1656,7 @@ function App() {
                 <div className="setting-row"><span>Autentificare</span><strong>{localAccount ? "Cont Casa, parola si cod din aplicatie" : "Cont Home Assistant"}</strong></div>
                 <div className="setting-row"><span>Sesiune pe acest dispozitiv</span><strong>Ramai conectat 30 de zile de la ultima folosire</strong></div>
                 <div className="setting-row"><span>Configurare si automatizari</span><strong>{role === "configure" ? (localAccount ? "Parametri in modul Admin" : "Disponibile in modul Admin") : "Doar administrator"}</strong></div>
-                <div className="setting-row"><span>Aspect</span><div className="theme-toggle" role="group" aria-label="Aspect cont"><button title="Luminos" aria-label="Luminos" aria-pressed={theme === "light"} onClick={() => setTheme("light")}><Sun size={15}/></button><button title="Intunecat" aria-label="Intunecat" aria-pressed={theme === "dark"} onClick={() => setTheme("dark")}><Moon size={15}/></button></div></div>
+                <div className="setting-row"><span>Aspect</span><div className="theme-toggle" role="group" aria-label="Aspect cont"><button title="Luminos" aria-label="Luminos" aria-pressed={theme === "light"} onClick={(event) => switchTheme("light", event)}><Sun size={15}/></button><button title="Intunecat" aria-label="Intunecat" aria-pressed={theme === "dark"} onClick={(event) => switchTheme("dark", event)}><Moon size={15}/></button></div></div>
                 <div className="account-actions">
                   {role === "configure" && <button className="button primary" onClick={() => setMode("configure")}><ShieldCheck size={16}/>Deschide administrarea</button>}
                   <button className="button" onClick={() => setDialog({ kind: "sessions", title: "Deconectezi toate dispozitivele?" })}><LogOut size={16}/>Deconecteaza toate dispozitivele</button>
@@ -1665,6 +1782,7 @@ function App() {
             aria-current={tab === key ? "page" : undefined}
             onClick={() => navigate(key)}
           >
+            {tab === key && <span className="dock-mark" aria-hidden="true" />}
             <Icon size={19} />
             {title}
           </button>
@@ -1684,7 +1802,9 @@ function App() {
         </div>
       )}
       {modal()}
+      {palette && data && <CommandPalette items={paletteItems()} onClose={() => setPalette(false)} />}
     </div>
+    </>
   );
 }
 createRoot(document.getElementById("root")!).render(<App />);

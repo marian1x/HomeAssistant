@@ -3,7 +3,7 @@ import asyncio
 from datetime import datetime, timezone
 from types import SimpleNamespace
 import sys
-sys.path.insert(0, '/config')
+sys.path.insert(0, sys.argv[1] if len(sys.argv) > 1 else '/config')
 from custom_components.home_energy_policy.runtime import Policy, SOURCE
 from custom_components.home_energy_policy import runtime
 from custom_components.home_energy_policy import tesla
@@ -31,7 +31,7 @@ async def main():
     runtime.er.async_get = lambda _:SimpleNamespace(async_get=lambda _:None)
     p.config = dict(DEFAULTS, enabled=True)
     p.memory = {'devices': {key: {} for key in DEVICES}}
-    p.contexts, p.before = {}, {}
+    p.contexts, p.before, p.load_samples = {}, {}, []
     p.save = lambda: asyncio.sleep(0)
     states.put(KILL, 'off')
     states.put('water_heater.boiler', 'MANUAL', {'temperature':47, 'current_temperature':46})
@@ -89,7 +89,7 @@ async def main():
     coordinator = SimpleNamespace(async_refresh=lambda:asyncio.sleep(0))
     p.hass.data = {'tesla_custom':{'test':{'cars':{'private-vin':{}},'controller':controller,'coordinators':{'private-vin':coordinator}}}}
     original_due = tesla.due
-    tesla.due = lambda *args:True
+    tesla.due = lambda *args:'idle'
     await tesla.refresh(p, {'sun_up':True,'ev_on':False})
     assert len(controller.calls) == 1 and controller.flag is False
     assert p.memory['tesla_quota']['reads_day'] == 1

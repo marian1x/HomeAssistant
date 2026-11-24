@@ -56,7 +56,7 @@
     {"id": "smoke-upstairs", "name": "Detector fum etaj", "kind": "smoke", "room": "hall-up"},
     {"id": "deye", "name": "Invertor Deye", "kind": "energy", "room": "solar", "device_ids": ["3bc561e68fbfc6dbdf743ac64342802d"], "primary_entity": "sensor.deye_pv_power", "manufacturer": "Deye"},
     {"id": "huawei", "name": "Invertor Huawei", "kind": "energy", "room": "solar", "device_ids": ["9c2811664f637ec6d6631fc12cd511a5"], "primary_entity": "sensor.inverter_active_power", "manufacturer": "Huawei", "note": "Conectat la intrarea GEN a Deye"},
-    {"id": "home-battery", "name": "Baterie Easyway 16 kWh", "kind": "battery", "room": "solar", "primary_entity": "sensor.deye_battery", "manufacturer": "Easyway Energy"},
+    {"id": "home-battery", "name": "Baterie Easyway UNIV-16kWh (WP)", "kind": "battery", "room": "solar", "primary_entity": "sensor.deye_battery", "manufacturer": "Easyway Energy"},
     {"id": "tesla", "name": "Tesla Model 3 Highland", "kind": "car", "room": "carport", "device_ids": ["55567bbbc2787adf922862f2b4524ed4"], "primary_entity": "switch.salavat_t3_charger", "manufacturer": "Tesla"},
     {"id": "ampevo", "name": "Statie incarcare Ampevo", "kind": "charger", "room": "carport", "manufacturer": "Ampevo", "note": "Incarcarea este controlata prin Tesla"},
     {"id": "street-shelly", "name": "Iluminat stradal / 3 stalpi", "kind": "light", "room": "street", "manufacturer": "Shelly 1 Gen4", "rated_power_kw": 0.3, "external_control": true, "note": "3 x 100 W LED; control separat in aplicatia Shelly"},

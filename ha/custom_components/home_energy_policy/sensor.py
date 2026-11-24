@@ -45,7 +45,7 @@ class PolicySensor(SensorEntity):
     _attr_unique_id = 'casa_salavat_energy_policy_status'
     _attr_icon = 'mdi:home-lightning-bolt-outline'
     _attr_should_poll = False
-    _unrecorded_attributes = frozenset({'devices', 'reason', 'updated_at', 'last_error', 'season', 'solar_budget_kw', 'battery_support_kw', 'recharge_lock', 'power_valid', 'outside_c', 'battery_soc', 'pv_kw', 'import_kw', 'export_kw', 'forecast_remaining_kwh', 'ac_power_estimated', 'tesla_quota'})
+    _unrecorded_attributes = frozenset({'devices', 'reason', 'updated_at', 'last_error', 'season', 'solar_budget_kw', 'battery_support_kw', 'recharge_lock', 'power_valid', 'outside_c', 'battery_soc', 'pv_kw', 'import_kw', 'export_kw', 'forecast_remaining_kwh', 'ac_power_estimated', 'tesla_quota', 'ev_limit', 'cold_charge'})
 
     def __init__(self, manager):
         self.manager = manager

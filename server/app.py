@@ -9,7 +9,7 @@ from pathlib import Path
 import secrets
 import time
 from urllib.parse import urlencode, urlparse
-from typing import Literal
+from typing import Annotated, Literal
 
 import httpx
 from fastapi import FastAPI, Request
@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .accounts import ROLES, USERNAME, check_password, hash_password, new_secret, otpauth, password_problem, temporary_password, totp_step
 from .ha import Peer
-from .policy import BASE, BINDINGS, HELPERS, HISTORY_ENERGY, HISTORY_POWER, KILL, LEVEL, RULE_PREFIX, Rejected, build_rule, command
+from .policy import BASE, BATTERY_HISTORY, BINDINGS, HELPERS, HISTORY_ENERGY, HISTORY_POWER, KILL, LEVEL, RULE_PREFIX, Rejected, build_rule, command
 from .store import SESSION_IDLE, Store
 from . import energy
 from zoneinfo import ZoneInfo
@@ -127,7 +127,7 @@ async def protection(request, call_next):
     response.headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=(), payment=(), usb=()'
     response.headers['Cross-Origin-Opener-Policy'] = 'same-origin'
     response.headers['Cross-Origin-Resource-Policy'] = 'same-origin'
-    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'"
+    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tile.openstreetmap.org; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'"
     if '/assets/' not in request.url.path:
         response.headers['Cache-Control'] = 'no-store'
     return response
@@ -352,6 +352,75 @@ async def energy_resume(data: EnergyResume, request: Request):
     return result.get('response', result)
 
 
+class TeslaLimit(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    soc: int = Field(ge=20, le=100)
+
+
+class ChargePrice(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    id: int = Field(ge=1)
+    price_kwh: float | None = Field(default=None, ge=0, le=20)
+    note: str = Field(default='', max_length=120)
+
+
+@app.get(BASE + '/api/tesla/log')
+async def tesla_log(request: Request, days: int = 90):
+    # Drive/charge journal kept by the HA policy; location history needs the control role.
+    peer, _, _ = await access(request, 'control')
+    if not 1 <= days <= 800:
+        raise Rejected('Interval invalid.', 422)
+    cache = getattr(peer, 'tesla_cache', {})
+    peer.tesla_cache = cache
+    if days in cache and time.time() - cache[days][0] < 30:
+        return cache[days][1]
+    result = await peer.call({'type': 'home_energy_policy/tesla_log', 'days': days})
+    try:
+        start = datetime(2026, 1, 1, tzinfo=timezone.utc).isoformat()
+        stats = await peer.call({'type': 'recorder/statistics_during_period', 'start_time': start, 'statistic_ids': ['sensor.salavat_t3_odometer'],
+                                 'period': 'month', 'types': ['min', 'max'], 'units': {'distance': 'km'}})
+        rows = stats.get('sensor.salavat_t3_odometer', [])
+        result['monthly_km'] = [{'start': r['start'], 'km': round(r['max'] - r['min'], 1)} for r in rows
+                                if isinstance(r.get('max'), (int, float)) and isinstance(r.get('min'), (int, float))]
+    except Rejected:
+        result['monthly_km'] = []
+    cache.clear()
+    cache[days] = (time.time(), result)
+    return result
+
+
+@app.get(BASE + '/api/tesla/drive/{drive_id}')
+async def tesla_drive(drive_id: int, request: Request):
+    peer, _, _ = await access(request, 'control')
+    if drive_id < 1:
+        raise Rejected('Deplasare inexistenta.', 404)
+    return await peer.call({'type': 'home_energy_policy/tesla_drive', 'id': drive_id})
+
+
+@app.post(BASE + '/api/tesla/limit')
+async def tesla_limit(data: TeslaLimit, request: Request):
+    peer, _, profile = await access(request, 'control', True)
+    async with peer.command_lock:
+        result = await peer.call({'type': 'call_service', 'domain': 'home_energy_policy', 'service': 'set_ev_limit',
+                                 'service_data': data.model_dump(), 'return_response': True})
+    store.log(profile['id'], 'tesla_limit', 'number.salavat_t3_charge_limit', f'Limita incarcare {data.soc}%')
+    return (result.get('response', result) or {}).get('status', {}).get('ev_limit', {'soc': data.soc})
+
+
+@app.post(BASE + '/api/tesla/charge-price')
+async def tesla_charge_price(data: ChargePrice, request: Request):
+    peer, _, profile = await access(request, 'control', True)
+    payload = {'id': data.id, 'note': data.note}
+    if data.price_kwh is not None:
+        payload['price_kwh'] = data.price_kwh
+    async with peer.command_lock:
+        await peer.call({'type': 'call_service', 'domain': 'home_energy_policy', 'service': 'set_charge_price',
+                         'service_data': payload, 'return_response': True})
+    getattr(peer, 'tesla_cache', {}).clear()
+    store.log(profile['id'], 'tesla_charge_price', f'incarcare {data.id}', 'Pret setat' if data.price_kwh is not None else 'Pret sters')
+    return {'saved': True}
+
+
 @app.post(BASE + '/api/command')
 async def execute(data: Command, request: Request):
     peer, _, profile = await access(request, 'control', True)
@@ -403,6 +472,79 @@ async def history(request: Request, period: str = 'day'):
             if timestamp < end.timestamp() * 1000 and item.get(metric) is not None:
                 rows.setdefault(timestamp, {'time': timestamp})[['solar', 'load', 'battery', 'grid'][index]] = item[metric]
     return {'period': period, 'unit': 'kW' if period == 'day' else 'kWh', 'points': [rows[k] for k in sorted(rows)][-400:]}
+
+
+def bucketed(series, start, step):
+    """Last value per time bucket; keeps memory and payload small."""
+    out = {}
+    for stamp, value in series:
+        out[int((stamp - start) // step)] = value
+    return out
+
+
+@app.get(BASE + '/api/battery/bms')
+async def battery_bms(request: Request, days: int = 2):
+    # Read-only BLE reading of the battery (cells, temperatures, heater phase, settings).
+    peer, _, _ = await access(request)
+    if not 1 <= days <= 14:
+        raise Rejected('Interval invalid.', 422)
+    cache = getattr(peer, 'bms_cache', {})
+    peer.bms_cache = cache
+    if days in cache and time.time() - cache[days][0] < 20:
+        return cache[days][1]
+    result = await peer.call({'type': 'home_energy_policy/bms', 'days': days})
+    cache.clear()
+    cache[days] = (time.time(), result)
+    return result
+
+
+@app.get(BASE + '/api/battery/history')
+async def battery_history(request: Request, hours: int = 24):
+    # Read-only: SOC, temperature, power and the BMS current limits from HA history.
+    peer, _, _ = await access(request)
+    if hours not in (24, 48):
+        raise Rejected('Interval invalid.', 422)
+    cache = getattr(peer, 'battery_cache', {})
+    peer.battery_cache = cache
+    if hours in cache and time.time() - cache[hours][0] < 60:
+        return cache[hours][1]
+    end = datetime.now(timezone.utc)
+    begin = end - timedelta(hours=hours)
+    raw = await peer.call({'type': 'history/history_during_period', 'start_time': begin.isoformat(), 'end_time': end.isoformat(),
+                           'entity_ids': list(BATTERY_HISTORY), 'include_start_time_state': True, 'significant_changes_only': False,
+                           'minimal_response': False, 'no_attributes': False})
+    step = 300 if hours == 24 else 600
+    start = begin.timestamp()
+
+    def number(text):
+        try:
+            value = float(text)
+        except (TypeError, ValueError):
+            return None
+        return value if value == value and abs(value) < 1e6 else None
+
+    def series(entity, pick):
+        rows, attrs = [], {}
+        for item in raw.get(entity, []):
+            attrs = item.get('a', attrs) or attrs  # compressed format repeats attributes only on change
+            stamp = item.get('lu') or item.get('lc')
+            if isinstance(stamp, (int, float)):
+                rows.append((max(stamp, start), pick(item.get('s'), attrs)))
+        return bucketed(rows, start, step)
+    soc = series('sensor.deye_battery', lambda s, a: number(s))
+    charge = series('sensor.deye_battery', lambda s, a: number(a.get('BMS Charging Current')))
+    discharge = series('sensor.deye_battery', lambda s, a: number(a.get('BMS Discharging Current')))
+    temp = series('sensor.deye_battery_temperature', lambda s, a: number(s))
+    power = series('sensor.deye_battery_power', lambda s, a: number(s))
+    points, last = [], {}
+    for index in range(int((end.timestamp() - start) // step) + 1):
+        for key, data in (('soc', soc), ('temp', temp), ('power', power), ('charge_limit', charge), ('discharge_limit', discharge)):
+            if index in data:
+                last[key] = data[index]
+        points.append({'time': (start + index * step) * 1000, **last})
+    result = {'hours': hours, 'step': step, 'points': points}
+    cache[hours] = (time.time(), result)
+    return result
 
 
 async def energy_data(peer, start, end, policy, mode, timezone_name):
@@ -596,6 +738,36 @@ class LocalUserNew(BaseModel):
     username: str = Field(max_length=32)
     name: str = Field(max_length=60)
     role: Literal['viewer', 'control', 'configure']
+
+
+LAYOUT_KEY = Annotated[str, Field(pattern=r'^[A-Za-z0-9_.:@+-]{1,200}$')]
+USAGE_DAYS = 30
+
+
+class Layout(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    sort: Literal['manual', 'usage', 'default']
+    order: list[LAYOUT_KEY] = Field(max_length=500)
+    groups: list[Literal['lights', 'climate', 'water', 'power', 'media', 'mobility']] = Field(max_length=6)
+
+
+@app.get(BASE + '/api/layout')
+async def layout(request: Request):
+    # Every role may arrange its own view; nothing here reaches HA.
+    _, _, profile = await access(request)
+    saved = store.layout_get(profile['id']) or {'sort': 'default', 'order': [], 'groups': []}
+    return {**saved, 'usage': store.usage(profile['id'], time.time() - USAGE_DAYS * 86400), 'usage_days': USAGE_DAYS}
+
+
+@app.post(BASE + '/api/layout')
+async def save_layout(data: Layout, request: Request):
+    _, session, profile = await access(request)
+    if request.headers.get('origin') != ORIGIN or not hmac.compare_digest(request.headers.get('x-csrf-token', ''), session['csrf']):
+        raise Rejected('Cerere neautorizata.', 403)
+    if len(set(data.order)) != len(data.order) or len(set(data.groups)) != len(data.groups):
+        raise Rejected('Ordinea contine elemente duplicate.', 422)
+    store.layout_set(profile['id'], data.model_dump())
+    return {'saved': True}
 
 
 class LocalUserEdit(BaseModel):
