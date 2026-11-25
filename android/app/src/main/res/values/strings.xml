@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Casa Salavat</string>
+    <string name="tab_home">Acasă</string>
+    <string name="tab_energy">Energie</string>
+    <string name="tab_devices">Dispozitive</string>
+    <string name="tab_tesla">Tesla</string>
+    <string name="tab_settings">Setări</string>
+    <string name="update_channel">Actualizări aplicație</string>
+</resources>

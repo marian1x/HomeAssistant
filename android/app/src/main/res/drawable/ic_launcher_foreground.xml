@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- House with a sun-lit window and an energy spark, inside the adaptive-icon safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- roof + body -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,30 L78,50 L74,50 L74,76 Q74,78 72,78 L36,78 Q34,78 34,76 L34,50 L30,50 Z" />
+    <!-- door cut-out -->
+    <path
+        android:fillColor="#287B65"
+        android:pathData="M48,78 L48,64 Q48,60 52,60 L56,60 Q60,60 60,64 L60,78 Z" />
+    <!-- solar spark -->
+    <path
+        android:fillColor="#F6C445"
+        android:pathData="M56,40 L49,53 L54,53 L51,62 L60,48 L55,48 L58,40 Z" />
+</vector>

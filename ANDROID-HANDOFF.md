@@ -1,5 +1,12 @@
 # Casa Salavat Android - predare pentru Claude din Android Studio
 
+> **Actualizare 2026-11-25 (decizia proprietarului):** s-a ales aplicatia **nativa Compose**
+> (varianta "respinsa fara decizia proprietarului" de mai jos) si livrarea prin
+> **Firebase App Distribution**. Proiectul este in `android/` din acest repository, pe `main`;
+> CI-ul ruleaza doar la modificari in `android/**`. Serverul NU a fost modificat: clientul nativ
+> trimite `Origin` + `X-CSRF-Token` ca browserul. Detalii curente: `android/README.md`.
+> Restul documentului ramane valabil pentru limite (HA, Tesla, comenzi fizice, nginx).
+
 Verificat pe sisteme la 2026-11-10. Document intern, fara parole, tokenuri sau chei.
 Citeste intai `AGENT-HANDOFF.md` din acelasi director: limitele de acolo (HA, Tesla,
 baterie, nginx, comenzi fizice) se aplica integral si lucrului pe Android.

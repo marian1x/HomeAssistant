@@ -1,0 +1,19 @@
+*.iml
+.gradle/
+.kotlin/
+/local.properties
+/.idea/
+.DS_Store
+/build/
+/app/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+build.log
+
+# Signing material and Firebase config never enter git (CI gets them from secrets).
+*.jks
+*.keystore
+keystore.properties
+app/google-services.json
+firebase-service-account*.json

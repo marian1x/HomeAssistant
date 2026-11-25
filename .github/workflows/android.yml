@@ -1,0 +1,112 @@
+name: Android APK
+
+# Every push to main that touches android/ builds a signed APK and ships it to the
+# phone through Firebase App Distribution (testers get a notification; the app's
+# in-app updater offers the new version). The web app on the Pi is NOT affected.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: 'Release notes (optional)'
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: android
+    env:
+      # versionCode must grow with every APK, or Android refuses the update.
+      VERSION_CODE: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon -PversionCode=$VERSION_CODE
+
+      - name: Signing material
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then echo "::error::KEYSTORE_BASE64 secret missing"; exit 1; fi
+          echo "$KEYSTORE_BASE64" | base64 -d > casa-release.jks
+          {
+            echo "storeFile=casa-release.jks"
+            echo "storePassword=$STORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > keystore.properties
+
+      - name: Firebase config
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
+          else
+            echo "::warning::GOOGLE_SERVICES_JSON not set: APK is built without the in-app updater"
+          fi
+
+      - name: Build signed release APK
+        run: ./gradlew assembleRelease --no-daemon -PversionCode=$VERSION_CODE
+
+      - name: Stage APK
+        id: apk
+        run: |
+          OUT="app/build/outputs/apk/release/casa-salavat-1.0.$VERSION_CODE.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$OUT"
+          echo "path=android/$OUT" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: casa-salavat-1.0.${{ github.run_number }}
+          path: ${{ steps.apk.outputs.path }}
+          retention-days: 30
+
+      - name: Distribute with Firebase App Distribution
+        env:
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          FIREBASE_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          NOTES: ${{ github.event.inputs.notes }}
+        run: |
+          if [ -z "$FIREBASE_APP_ID" ] || [ -z "$FIREBASE_SA" ]; then
+            echo "::warning::Firebase secrets missing: APK kept only as a workflow artifact"
+            exit 0
+          fi
+          echo "$FIREBASE_SA" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          MSG="${NOTES:-$(git log -1 --pretty=%s)}"
+          npx -y firebase-tools@latest appdistribution:distribute "$GITHUB_WORKSPACE/${{ steps.apk.outputs.path }}" \
+            --app "$FIREBASE_APP_ID" \
+            --groups "owner" \
+            --release-notes "1.0.$VERSION_CODE: $MSG"
+
+      - name: Clean up secrets
+        if: always()
+        run: rm -f casa-release.jks keystore.properties app/google-services.json "$RUNNER_TEMP/sa.json"

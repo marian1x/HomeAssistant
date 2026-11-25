@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_energy"
+        android:shortcutId="energy"
+        android:shortcutShortLabel="@string/tab_energy">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetClass="ro.salavat.casa.MainActivity"
+            android:targetPackage="ro.salavat.casa">
+            <extra android:name="route" android:value="energy" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_devices"
+        android:shortcutId="devices"
+        android:shortcutShortLabel="@string/tab_devices">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetClass="ro.salavat.casa.MainActivity"
+            android:targetPackage="ro.salavat.casa">
+            <extra android:name="route" android:value="devices" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_tesla"
+        android:shortcutId="tesla"
+        android:shortcutShortLabel="@string/tab_tesla">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetClass="ro.salavat.casa.MainActivity"
+            android:targetPackage="ro.salavat.casa">
+            <extra android:name="route" android:value="tesla" />
+        </intent>
+    </shortcut>
+</shortcuts>
