@@ -556,3 +556,20 @@ validat daca ai testat doar pagina de login sau mock-uri.
 
 Continua cu `README.md`, `ENERGY-POLICY.md` si `TESLA.md`, tinand cont ca notele
 vechi despre Hue lipsa, TCL neconfigurat sau Tesla neautentificat sunt depasite.
+
+## Publicarea din 2026-11-26 (server sursa unica, APK nativ)
+
+- Pi5: proiectul live NU este un checkout git. Inainte de copiere s-a verificat ca
+  fisierele live sunt identice (fara CRLF) cu commitul de baza; publica numai fisiere
+  comise, cu LF. Backup: `/home/pi5/backups/home-control-20261126-092930` (0700).
+  Rollback: copiaza `server src tests dist` din backup si reporneste `home-control`.
+- HA: integrarea `home_energy_policy` nu s-a schimbat (identica cu repo-ul); serverul
+  foloseste numai servicii HA existente. Tesla Custom nu are entitati `time.*`: programul
+  de incarcare apare doar ca stare (`binary_sensor.salavat_t3_scheduled_charging`).
+- APK: GitHub Releases `android-vX.Y.N` din `.github/workflows/android.yml` (fara Firebase).
+  Cheia de semnare a fost generata pe PC-ul proprietarului, in afara repo-ului, si urcata ca
+  secrete Actions (`KEYSTORE_*`, `KEY_*`). Amprenta certificat SHA-256:
+  `91:73:61:C7:6F:F4:26:4E:B9:49:A8:3F:E2:ED:91:CF:70:3C:A0:87:56:2B:50:41:51:4A:2C:A5:A9:7C:75:C7`.
+  Toate versiunile trebuie semnate cu aceeasi cheie; nu o regenera.
+- Ordinea corecta pentru schimbari de contract: intai serverul pe Pi5, apoi push in
+  `android/` (APK-ul nou se bazeaza pe endpointurile noi).
