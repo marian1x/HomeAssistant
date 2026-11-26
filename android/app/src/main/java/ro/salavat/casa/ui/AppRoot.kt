@@ -58,8 +58,17 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.IconButton
 import ro.salavat.casa.data.AuthState
-import ro.salavat.casa.data.Device
+import ro.salavat.casa.ui.energy.BatteryScreen
+import ro.salavat.casa.ui.energy.GridScreen
+import ro.salavat.casa.ui.energy.HouseScreen
+import ro.salavat.casa.ui.energy.InverterScreen
+import ro.salavat.casa.ui.policy.PolicyScreen
+import ro.salavat.casa.ui.settings.AuditScreen
+import ro.salavat.casa.ui.tesla.DriveScreen
 import ro.salavat.casa.data.Live
 import ro.salavat.casa.data.Prefs
 import ro.salavat.casa.data.Repository
@@ -132,20 +141,24 @@ private fun Main(repo: Repository, prefs: Prefs, updater: Updater, route: String
     val s by repo.snapshot.collectAsState()
     val snapshot = s ?: return
     val live by repo.live.collectAsState()
-    var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
-    Tab.of(route)?.let { tab = it; onRouteHandled() }
-    var openId by rememberSaveable { mutableStateOf<String?>(null) }
+    val nav = rememberSaveable(saver = Nav.Saver) { Nav() }
+    Tab.of(route)?.let { nav.go(it); onRouteHandled() }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val commands = remember { Commands(repo, scope, snackbar) }
     val wide = LocalConfiguration.current.screenWidthDp >= 600
+    var searching by remember { mutableStateOf(false) }
+    // System back closes a detail screen first, then returns to Home, then leaves the app.
+    BackHandler(enabled = nav.stack.isNotEmpty() || nav.tab != Tab.HOME) {
+        if (nav.stack.isNotEmpty()) nav.pop() else nav.go(Tab.HOME)
+    }
 
-    CompositionLocalProvider(LocalCommands provides commands) {
+    CompositionLocalProvider(LocalCommands provides commands, LocalNav provides nav) {
         Row(Modifier.fillMaxSize()) {
             if (wide) NavigationRail(containerColor = Color.Transparent, modifier = Modifier.statusBarsPadding()) {
                 Spacer(Modifier.height(12.dp))
                 Tab.entries.forEach { t ->
-                    NavigationRailItem(selected = tab == t, onClick = { tab = t }, icon = { Icon(t.icon, null) }, label = { Text(t.label) })
+                    NavigationRailItem(selected = nav.tab == t, onClick = { nav.go(t) }, icon = { Icon(t.icon, null) }, label = { Text(t.label) })
                 }
             }
             Scaffold(
@@ -153,41 +166,50 @@ private fun Main(repo: Repository, prefs: Prefs, updater: Updater, route: String
                 containerColor = Color.Transparent,
                 contentWindowInsets = WindowInsets.safeDrawing,
                 snackbarHost = { SnackbarHost(snackbar) },
-                topBar = { StatusStrip(snapshot.connected, live, snapshot.user?.name) },
+                topBar = { StatusStrip(snapshot.connected, live, snapshot.user?.name) { searching = true } },
                 bottomBar = {
                     if (!wide) NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                         Tab.entries.forEach { t ->
                             NavigationBarItem(
-                                selected = tab == t, onClick = { tab = t }, icon = { Icon(t.icon, null) }, label = { Text(t.label) },
+                                selected = nav.tab == t, onClick = { nav.go(t) }, icon = { Icon(t.icon, null) }, label = { Text(t.label) },
                                 colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.primaryContainer),
                             )
                         }
                     }
                 },
             ) { padding ->
-                AnimatedContent(tab, transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(120)) }, label = "tab") { t ->
-                    val open: (Device) -> Unit = { openId = it.id }
-                    when (t) {
-                        Tab.HOME -> HomeScreen(snapshot, padding, open)
+                AnimatedContent(nav.top ?: nav.tab, transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(120)) }, label = "screen") { screen ->
+                    val back = { nav.pop() }
+                    when (screen) {
+                        Tab.HOME -> HomeScreen(snapshot, padding)
                         Tab.ENERGY -> EnergyScreen(snapshot, repo, padding)
-                        Tab.DEVICES -> DevicesScreen(snapshot, padding, open)
-                        Tab.TESLA -> TeslaScreen(snapshot, padding)
+                        Tab.DEVICES -> DevicesScreen(snapshot, padding)
+                        Tab.TESLA -> TeslaScreen(snapshot, repo, padding)
                         Tab.SETTINGS -> SettingsScreen(snapshot, repo, prefs, updater, padding)
+                        Sub.Inverter -> InverterScreen(snapshot, repo, padding, back)
+                        Sub.Battery -> BatteryScreen(snapshot, repo, padding, back)
+                        Sub.House -> HouseScreen(snapshot, repo, padding, back)
+                        Sub.Grid -> GridScreen(snapshot, repo, padding, back)
+                        Sub.Policy -> PolicyScreen(snapshot, repo, padding, back)
+                        Sub.Audit -> AuditScreen(repo, padding, back)
+                        is Sub.TeslaDrive -> DriveScreen(screen.drive, repo, padding, back)
+                        else -> Unit
                     }
                 }
             }
         }
         // The sheet follows live state: it re-resolves the device from each new snapshot.
-        openId?.let { id ->
+        nav.device?.let { id ->
             val device = remember(snapshot, id) { buildDevices(snapshot).firstOrNull { it.id == id } }
-            if (device == null) openId = null else DeviceSheet(device, snapshot.user) { openId = null }
+            if (device == null) nav.device = null else DeviceSheet(device, snapshot.user, snapshot.layout) { nav.device = null }
         }
+        if (searching) SearchDialog(snapshot) { searching = false }
         ConfirmHost(commands)
     }
 }
 
 @Composable
-private fun StatusStrip(connected: Boolean, live: Live, name: String?) {
+private fun StatusStrip(connected: Boolean, live: Live, name: String?, onSearch: () -> Unit) {
     Row(
         Modifier.fillMaxWidth()
             .background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.background.copy(alpha = 0.96f), MaterialTheme.colorScheme.background.copy(alpha = 0.82f))))
@@ -198,6 +220,7 @@ private fun StatusStrip(connected: Boolean, live: Live, name: String?) {
             Text("Casa Salavat", style = MaterialTheme.typography.titleMedium)
             name?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
+        IconButton(onClick = onSearch) { Icon(Icons.Rounded.Search, "Caută") }
         val (text, color) = when {
             live is Live.Offline -> "Offline" to MaterialTheme.colorScheme.error
             live is Live.Connecting -> "Conectare…" to Energy.solar

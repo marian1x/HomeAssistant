@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -130,12 +131,13 @@ fun GlassCard(
     val bg = (tint ?: MaterialTheme.colorScheme.surface).copy(alpha = if (dark) 0.62f else 0.78f)
     val border = BorderStroke(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = if (dark) 0.14f else 0.7f), Color.White.copy(alpha = 0.02f))))
     val shape = RoundedCornerShape(26.dp)
+    // Cards always span their slot (column, grid cell or weighted row share).
     if (onClick != null) {
-        Surface(onClick = onClick, modifier = modifier, shape = shape, color = bg, border = border) {
+        Surface(onClick = onClick, modifier = modifier.fillMaxWidth(), shape = shape, color = bg, border = border) {
             Column(Modifier.padding(padding), content = content)
         }
     } else {
-        Surface(modifier = modifier, shape = shape, color = bg, border = border) {
+        Surface(modifier = modifier.fillMaxWidth(), shape = shape, color = bg, border = border) {
             Column(Modifier.padding(padding), content = content)
         }
     }

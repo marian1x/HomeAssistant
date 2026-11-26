@@ -479,6 +479,15 @@ html[data-vt="theme"]::view-transition-new(root) { z-index: 2; }
 .tesla-limit input[type=range] { width: 100%; accent-color: var(--energy-load); margin: 6px 0 2px; }
 .tesla-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
 .tesla-limit > small { color: var(--muted); font-size: 12px; }
+/* Car commands (2026-11-25): one confirmed action per button. */
+.tesla-controls { grid-column: 1 / -1; gap: 10px; }
+.tesla-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.tesla-row-control { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13px; }
+.tesla-row-control > span { display: inline-flex; align-items: center; gap: 6px; }
+.tesla-row-control small { color: var(--muted); }
+.tesla-row-control input[type=range] { flex: 1 1 160px; accent-color: var(--energy-load); }
+.tesla-steps { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.tesla-controls > small { color: var(--muted); font-size: 12px; }
 @media (max-width: 900px) {
   .tesla-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tesla-row { grid-template-columns: 1fr auto; grid-auto-rows: auto; gap: 6px 12px; }

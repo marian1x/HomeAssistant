@@ -34,6 +34,15 @@ LEGACY_POLICY = {'automation.hvac_solar_climate_control', 'automation.ariston_so
 BACKUP_MAINTENANCE = {'automation.ha_full_backup_morning_and_evening', 'automation.ha_backup_integrity_monitor'}
 ATTRS.update({'fan_mode', 'fan_modes', 'phase', 'reason', 'devices', 'updated_at', 'power_valid', 'battery_soc', 'pv_kw', 'import_kw', 'export_kw', 'solar_budget_kw', 'battery_support_kw', 'recharge_lock', 'forecast_remaining_kwh', 'last_error', 'tesla_quota', 'ev_limit', 'cold_charge'})
 ATTRS.add('battery_reserve_soc')
+ATTRS.update({'preset_mode', 'preset_modes'})
+# Owner decision 2026-11-25: full car control from Casa (charging, current, climate, locks,
+# openings, seats, schedule). Only the car's own entities, one explicit action per domain.
+# The charge limit stays the policy's owner limit (/api/tesla/limit); polling, valet mode,
+# remote start and forced data updates stay in HA. Commands may wake the car (Tesla API cost).
+CAR = 'salavat_t3'
+TESLA_BUTTONS = {'horn', 'flash_lights', 'wake_up'}
+TESLA_PROTECTED = ('polling', 'valet', 'remote_start', 'force_data', 'emissions', 'charge_limit', 'homelink')
+TIME = re.compile(r'(?:[01]\d|2[0-3]):[0-5]\d')
 # BMS values the Deye inverter forwards; Solarman exposes them as attributes of
 # sensor.deye_battery. Read-only, used by the battery panel.
 BMS_ATTRS = ('BMS SOC', 'BMS Current', 'BMS Voltage', 'BMS Other Symbol', 'BMS Charging Voltage', 'BMS Discharging Voltage',
@@ -57,14 +66,54 @@ def clean_state(state):
     return {key: state[key] for key in ('entity_id', 'state', 'last_changed', 'last_updated') if key in state} | {'attributes': {k: v for k, v in state.get('attributes', {}).items() if k in ATTRS}}
 
 
+def is_car(entity_id):
+    return entity_id.partition('.')[2].startswith(CAR + '_')
+
+
+def tesla(entity_id, action, value, attrs):
+    domain, name = entity_id.split('.', 1)
+    name = name[len(CAR) + 1:]
+    if any(word in name for word in TESLA_PROTECTED):
+        raise Rejected('Comanda Tesla protejata; foloseste limita din pagina Tesla sau HA.')
+    target = {'entity_id': entity_id}
+    if domain == 'switch' and action in ('turn_on', 'turn_off'):
+        return domain, action, target
+    if domain == 'lock' and action in ('lock', 'unlock'):
+        return domain, action, target
+    if domain == 'cover' and action in ('open_cover', 'close_cover'):
+        return domain, action, target
+    if domain == 'button' and action == 'press' and name in TESLA_BUTTONS:
+        return domain, 'press', target
+    if domain == 'number' and action == 'set_value':
+        low, high = max(0, attrs.get('min', 0)), min(48, attrs.get('max', 48))
+        return domain, 'set_value', {**target, 'value': bounded(value, low, high)}
+    if domain == 'select' and action == 'select_option' and isinstance(value, str) and value in attrs.get('options', []):
+        return domain, 'select_option', {**target, 'option': value}
+    if domain == 'time' and action == 'set_value' and isinstance(value, str) and TIME.fullmatch(value):
+        return domain, 'set_value', {**target, 'time': value + ':00'}
+    if domain == 'climate':
+        if action in ('turn_on', 'turn_off'):
+            return domain, action, target
+        if action == 'set_temperature':
+            return domain, action, {**target, 'temperature': bounded(value, attrs.get('min_temp', 15), attrs.get('max_temp', 28))}
+        if action == 'set_hvac_mode' and value in attrs.get('hvac_modes', []):
+            return domain, action, {**target, 'hvac_mode': value}
+        if action == 'set_preset_mode' and value in attrs.get('preset_modes', []):
+            return domain, action, {**target, 'preset_mode': value}
+    raise Rejected('Actiune Tesla nepermisa.')
+
+
 def command(role, entity_id, action, value, states, registry):
     if LEVEL.get(role, -1) < 1:
         raise Rejected('Acces doar pentru vizualizare.')
     state = states.get(entity_id)
-    if not state or state['state'] in ('unknown', 'unavailable'):
-        raise Rejected('Dispozitivul nu este disponibil.', 409)
     domain = entity_id.split('.')[0]
+    # A button that was never pressed reports "unknown"; that is its normal state.
+    if not state or state['state'] == 'unavailable' or (state['state'] == 'unknown' and domain != 'button'):
+        raise Rejected('Dispozitivul nu este disponibil.', 409)
     attrs = state.get('attributes', {})
+    if is_car(entity_id):
+        return tesla(entity_id, action, value, attrs)
     if action == 'turn_on' and (entity_id in LEGACY_POLICY or entity_id in AUTO_FLAGS) and 'sensor.home_energy_policy_status' in states:
         raise Rejected('Control preluat de Politica Energie; regula veche este dezactivata.', 409)
     if entity_id == KILL and action in ('turn_on', 'turn_off'):
@@ -147,6 +196,8 @@ def build_rule(data, states, registry, rule_id):
     domain, action, args = command('configure', data.get('entity_id', ''), data.get('action', ''), data.get('value'), states, registry)
     if domain in ('automation', 'input_boolean'):
         raise Rejected('Regulile nu pot activa alte automatizari sau killswitch-ul.', 422)
+    if is_car(data.get('entity_id', '')):
+        raise Rejected('Comenzile Tesla se dau doar manual, nu din reguli.', 422)
     kind = data.get('trigger')
     if kind == 'time':
         if not re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d', data.get('at', '')):

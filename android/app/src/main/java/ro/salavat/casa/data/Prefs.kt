@@ -27,4 +27,9 @@ class Prefs(context: Context) {
     var lastUpdateCheck: Long
         get() = sp.getLong("update_check", 0)
         set(v) = sp.edit().putLong("update_check", v).apply()
+
+    /** Last version announced by a background notification (one notification per version). */
+    var notifiedVersion: Int
+        get() = sp.getInt("update_notified", 0)
+        set(v) = sp.edit().putInt("update_notified", v).apply()
 }

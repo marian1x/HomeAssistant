@@ -3,10 +3,12 @@ import { BatteryCharging, Car, Check, SlidersHorizontal, DoorClosed, ExternalLin
 import { type Snapshot, type State, format, number, valid } from './model';
 import { Num } from './motion';
 import { Charges, Drives, Stats, useTeslaLog } from './TeslaJournal';
+import TeslaControls from './TeslaControls';
 
-/* Tesla page. "Acum" shows what Home Assistant already holds (never wakes the car); the owner
-   charge limit is the only command, confirmed, and applied by the HA policy at the next
-   no-wake read. The journal tabs read the drive/charge log kept by the policy. */
+/* Tesla page. "Acum" shows what Home Assistant already holds (reading never wakes the car).
+   Commands (TeslaControls, owner decision 2026-11-25) are confirmed and may wake it; the owner
+   charge limit goes through the HA policy at the next no-wake read. The journal tabs read the
+   drive/charge log kept by the policy. */
 
 const CAR = 'salavat_t3';
 const when = (iso?: string) => {
@@ -167,6 +169,7 @@ function TeslaNow({ data, tabs, canControl }: { data: Snapshot | null; tabs: Rea
             {done && <div><dt>Gata la</dt><dd>{done}</dd></div>}
           </dl>
         </article>
+        {canControl && data && <TeslaControls data={data} />}
         {canControl && <LimitCard data={data} native={limit} soc={battery} />}
         <TelemetryCard t={telemetry} />
         <article className="tesla-card">

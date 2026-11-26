@@ -69,6 +69,11 @@ data class Snapshot(
     val rooms: List<Room>,
     val items: List<HouseItem>,
     val bindings: Map<String, String>,
+    val layout: Layout = Layout(),
+    val profiles: List<EnergyProfile> = emptyList(),
+    val activeProfile: ActiveProfile? = null,
+    /** Bumped by the server when shared policy state changes through Casa: re-read the policy. */
+    val policyStamp: Int = 0,
 ) {
     fun binding(key: String): EntityState? = states[bindings[key] ?: DEFAULT_BINDINGS[key]]
     fun value(key: String): Double? = binding(key)?.number
@@ -133,6 +138,10 @@ data class Snapshot(
                     )
                 } ?: emptyList(),
                 bindings = bindings,
+                layout = Layout.parse(o.optJSONObject("layout")),
+                profiles = parseProfiles(o.optJSONArray("profiles")),
+                activeProfile = o.optJSONObject("active_profile")?.let { ActiveProfile(it.optString("id"), it.optDouble("at")) },
+                policyStamp = o.optInt("policy_stamp"),
             )
         }
     }

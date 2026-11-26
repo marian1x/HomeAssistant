@@ -1,11 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { ArrowDown, ArrowUp, ArrowUpDown, ArrowUpRight, Car, Check, CloudSun, Flame, House, LayoutGrid, Lightbulb, Plug, Search, SlidersHorizontal, Sun, Thermometer, Volume2, Wind, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ArrowUpRight, Car, Check, CloudSun, Flame, House, LayoutGrid, Lightbulb, Plug, Search, SlidersHorizontal, Star, Sun, Thermometer, Volume2, Wind, X } from 'lucide-react';
 import { type Device, type Snapshot, type State, controllable, controlCategory, deviceReading, format, houseFloors, houseRooms, inLocation, valid } from './model';
 import EnergyFlow from './EnergyFlow';
 import { energyFlow } from './energy-flow';
 import { brief } from './brief';
 import { Num } from './motion';
-import { type Layout, arrange, groupOrder, move, moveGroup, uses } from './arrange';
+import { type Layout, arrange, groupOrder, move, moveGroup, pick, uses } from './arrange';
 import { ArrangeBar, Sortable, useSortable } from './ArrangeMode';
 import './home-control.css';
 
@@ -16,7 +16,7 @@ type Props={data:Snapshot|null;devices:Device[];history:any;canControl:boolean;c
 const groups=[{id:'lights',name:'Iluminat',icon:Lightbulb},{id:'climate',name:'Climatizare',icon:Wind},{id:'water',name:'Apa calda',icon:Flame},
   {id:'power',name:'Prize si relee',icon:Plug},{id:'media',name:'Media',icon:Volume2},{id:'mobility',name:'Mobilitate',icon:Car}];
 
-function DeviceCommand({device:d,control,canControl,temperature,brightness}:{device:Device;control:Props['control'];canControl:boolean;temperature:Props['temperature'];brightness:Props['brightness']}) {
+function DeviceCommand({device:d,control,canControl,temperature,brightness,favorite,onFavorite}:{device:Device;control:Props['control'];canControl:boolean;temperature:Props['temperature'];brightness:Props['brightness'];favorite:boolean;onFavorite:()=>void}) {
   const state=d.primary, category=controlCategory(d), Icon=groups.find(g=>g.id===category)?.icon || Plug;
   const [lightDraft,setLightDraft]=useState<number|null>(null);
   const actual=state.state==='off'?0:typeof state.attributes.brightness==='number'?Math.round(state.attributes.brightness/255*100):null;
@@ -30,7 +30,7 @@ function DeviceCommand({device:d,control,canControl,temperature,brightness}:{dev
   const temp=(n:any)=>format(typeof n==='number'?n:null);
   const reading=category==='lights'&&actual!==null?'Luminozitate '+actual+'%':category==='media'&&state.attributes.volume_level!=null?'Volum '+Math.round(state.attributes.volume_level*100)+'%':d.manufacturer || 'Home Assistant';
   return <article className={'home-device '+category+(!valid(state)?' offline':'')+(on?' active':'')} data-device={d.id} data-room={d.area}>
-    <div className="home-device-top"><span className="home-device-icon"><Icon size={20}/></span><div className="home-device-name"><h3>{d.name}</h3><span>{d.floor} / {d.area}</span></div>{toggle?control(state):<span className={'state-chip '+tone}>{deviceReading(d)}</span>}</div>
+    <div className="home-device-top"><span className="home-device-icon"><Icon size={20}/></span><div className="home-device-name"><h3>{d.name}</h3><span>{d.floor} / {d.area}</span></div><button type="button" className={'favorite-toggle'+(favorite?' on':'')} aria-pressed={favorite} title={favorite?'Scoate din favorite':'Adauga la favorite'} aria-label={(favorite?'Scoate din favorite ':'Adauga la favorite ')+d.name} onClick={onFavorite}><Star size={15} fill={favorite?'currentColor':'none'}/></button>{toggle?control(state):<span className={'state-chip '+tone}>{deviceReading(d)}</span>}</div>
     {toggle?<div className="home-device-meta"><span className={'state-chip '+tone}>{deviceReading(d)}</span><span>{reading}</span></div>
       :<div className="home-device-bottom"><div className="home-device-reading">{thermal?<><strong>{temp(state.attributes.current_temperature)}<small> °C</small></strong><span>Tinta {temp(state.attributes.temperature)}°{state.attributes.fan_mode?' · Ventilator '+state.attributes.fan_mode:''}</span></>:<span>{reading}</span>}</div>{control(state)}</div>}
     {adjustable&&<div className="home-brightness"><Sun size={16}/><input type="range" aria-label={'Luminozitate '+d.name} min="1" max="100" value={lightDraft??actual??1} disabled={!canControl||!valid(state)} onChange={e=>setLightDraft(Number(e.target.value))}/><output>{lightDraft??actual??'--'}%</output><button className="apply-button" title={'Aplica luminozitatea '+d.name} aria-label={'Aplica luminozitatea '+d.name} disabled={!canControl||!valid(state)||lightDraft===null||lightDraft===actual} onClick={()=>lightDraft!==null&&brightness(state,lightDraft)}><Check size={15}/>Aplica</button></div>}
@@ -40,6 +40,12 @@ function DeviceCommand({device:d,control,canControl,temperature,brightness}:{dev
 
 export default function HomeDashboard({data,devices,canControl,control,temperature,brightness,navigate,room,floor,onLocation,layout,onLayout,onArrange}:Props) {
   const [arranging,setArranging]=useState(false);
+  // Favorites and named views are shared with the APK through the server layout.
+  const [collection,setCollection]=useState(()=>layout.favorites?.length?'fav':'all');
+  const view=layout.views?.find(v=>v.id===collection);
+  const picked=collection==='fav'?pick(devices,layout.favorites||[]):view?pick(devices,view.items):null;
+  const isFavorite=(d:Device)=>(layout.favorites||[]).includes(d.id);
+  const toggleFavorite=(d:Device)=>onLayout({favorites:isFavorite(d)?layout.favorites.filter(id=>id!==d.id):[...(layout.favorites||[]),d.id].slice(0,100)});
   const [category,setCategory]=useState('all'),[query,setQuery]=useState('');
   const [showOffline,setShowOffline]=useState(false);
   const [now,setNow]=useState(()=>new Date());
@@ -71,18 +77,24 @@ export default function HomeDashboard({data,devices,canControl,control,temperatu
     <section className="room-command-center" aria-label="Controlul camerelor">
       <header className="room-command-heading"><div><span className="eyebrow">CONTROL DIRECT</span><h2>{room==='all'?(floor==='all'?'Dispozitivele casei':floor):room}</h2><span className="room-device-count">{scoped.length} dispozitive integrate pentru control</span></div><div className="room-command-actions">{data&&<button className={'button arrange-toggle'+(arranging?' selected':'')} aria-pressed={arranging} onClick={toggleArrange}><ArrowUpDown size={16}/>Aranjeaza</button>}<button className="text-button" onClick={()=>navigate('devices',room,floor)}>Inventar dispozitive <ArrowUpRight size={16}/></button></div></header>
       {arranging&&<ArrangeBar sort={layout.sort} days={layout.usage_days||30} onSort={sort=>onLayout({sort})} onDone={()=>setArranging(false)}/>}
+      {data&&<div className="room-tabs collection-tabs" role="tablist" aria-label="Colectii">{[{id:'all',name:'Toate'},{id:'fav',name:'Favorite'},...(layout.views||[])].map(c=><button role="tab" key={c.id} aria-selected={collection===c.id} onClick={()=>{setCollection(c.id);setArranging(false);}}>{c.id==='fav'&&<Star size={14}/>}{c.name}<small className="tab-count" aria-hidden="true">{c.id==='all'?devices.filter(controllable).length:c.id==='fav'?(layout.favorites||[]).length:(c as any).items.length}</small></button>)}</div>}
+      {picked&&<section className="home-device-group" aria-label={view?view.name:'Favorite'}><header><h3><Star size={17}/>{view?view.name:'Favorite'}</h3><small>{picked.length} dispozitive{view?' · vederea se editeaza din aplicatia Android':''}</small></header>
+        {picked.length?<div className="home-device-grid">{picked.map(d=><DeviceCommand key={d.id} device={d} control={control} canControl={canControl} temperature={temperature} brightness={brightness} favorite={isFavorite(d)} onFavorite={()=>toggleFavorite(d)}/>)}</div>
+          :<div className="home-control-empty"><Star size={24}/><span>{view?'Vederea este goala.':'Nicio favorita inca. Atinge steaua unui dispozitiv.'}</span></div>}</section>}
+      {!picked&&<>
       <div className="floor-tabs" role="tablist" aria-label="Nivel">{['all',...houseFloors(data)].map(f=><button role="tab" key={f} aria-label={f==='all'?'Toata casa':f} aria-selected={floor===f} onClick={()=>{onLocation(f,'all');setQuery('');}}>{f==='all'?<><House size={15}/>Toata casa</>:f}<small className="tab-count" aria-hidden="true">{placeCount(f,'all')}</small></button>)}</div>
       <div className="room-tabs" role="tablist" aria-label="Camere">{roomTabs.map(r=><button role="tab" key={r} aria-label={r==='all'?'Toate camerele':r} aria-selected={room===r} onClick={()=>{onLocation(floor,r);setQuery('');}}>{r==='all'?'Toate camerele':r}<small className="tab-count" aria-hidden="true">{placeCount(floor,r)}</small></button>)}</div>
       <label className="home-category-select"><LayoutGrid size={17}/><select aria-label="Tip dispozitiv" value={category} onChange={e=>setCategory(e.target.value)}>{[{id:'all',name:'Toate dispozitivele'},...ordered].map(g=><option key={g.id} value={g.id}>{g.name} ({g.id==='all'?scoped.length:counts(g.id)})</option>)}</select></label>
       <div className="home-control-toolbar"><div className="control-categories" role="tablist" aria-label="Tip dispozitiv">{[{id:'all',name:'Toate',icon:LayoutGrid},...ordered].map(g=><button key={g.id} role="tab" aria-selected={category===g.id} onClick={()=>setCategory(g.id)}><g.icon size={16}/>{g.name}<small>{g.id==='all'?scoped.length:counts(g.id)}</small></button>)}</div><div className="home-device-options"><label className="offline-option"><input type="checkbox" checked={showOffline} onChange={e=>setShowOffline(e.target.checked)}/>Indisponibile</label><label className="home-device-search"><Search size={17}/><input type="search" aria-label="Cauta in camera" placeholder="Cauta dispozitiv" value={query} onChange={e=>setQuery(e.target.value)}/>{query&&<button title="Sterge cautarea" onClick={()=>setQuery('')}><X size={15}/></button>}</label></div></div>
       {ordered.filter(g=>category==='all'||g.id===category).map((g,gi,visibleGroups)=>{const items=sorted.filter(d=>controlCategory(d)===g.id);if(!items.length)return null;
-        const card=(d:Device)=><DeviceCommand key={d.id} device={d} control={control} canControl={canControl&&!arranging} temperature={temperature} brightness={brightness}/>;
+        const card=(d:Device)=><DeviceCommand key={d.id} device={d} control={control} canControl={canControl&&!arranging} temperature={temperature} brightness={brightness} favorite={isFavorite(d)} onFavorite={()=>toggleFavorite(d)}/>;
         const ids=items.map(d=>d.id), view=arranging?sorter.preview(g.id,ids):ids, byId=new Map(items.map(d=>[d.id,d]));
         return <section className={'home-device-group'+(arranging?' arranging':'')} key={g.id} aria-label={g.name}><header><h3><g.icon size={17}/>{g.name}</h3>
           {arranging&&category==='all'&&<span className="group-steps"><button type="button" aria-label={'Muta grupul '+g.name+' mai sus'} disabled={gi===0} onClick={()=>onLayout({groups:moveGroup(layout,g.id,-1)})}><ArrowUp size={15}/></button><button type="button" aria-label={'Muta grupul '+g.name+' mai jos'} disabled={gi===visibleGroups.length-1} onClick={()=>onLayout({groups:moveGroup(layout,g.id,1)})}><ArrowDown size={15}/></button></span>}
           <small>{items.length} dispozitive</small></header>
           <div className="home-device-grid">{arranging?view.map(id=>{const d=byId.get(id)!;return <Sortable key={id} sorter={sorter} scope={g.id} ids={ids} id={id} name={d.name} uses={layout.sort==='usage'?uses(d,layout.usage):null}>{card(d)}</Sortable>;}):items.map(card)}</div></section>;})}
       {!shown.length&&<div className="home-control-empty"><Plug size={24}/><span>{data?'Niciun dispozitiv de control pentru aceasta selectie.':'Autentifica-te pentru dispozitivele casei.'}</span></div>}
+      </>}
     </section>
   </section>;
 }

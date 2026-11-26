@@ -31,6 +31,22 @@ sign `fleet_telemetry_config`; the config is signed with the official `tesla-jws
 v0.4.1) run inside the add-on, so the private key never leaves it. The push itself is pending
 the owner. The published public key equals the proxy key (SHA-256 of DER `fec988f1...1b6d`).
 
+## Car Commands from Casa (owner decision 2026-11-25)
+
+The owner lifted the earlier "read-only, no commands" rule. Browser and APK send car commands
+through the existing `/casa/api/command`, restricted in `server/policy.py` (`tesla()`) to the
+car's own entities (`*.salavat_t3_*`) and one explicit action per domain: charger/Sentry/other
+switches on/off, charging amps (`number`, within the entity's min/max, max 48 A), climate
+(on/off, temperature 15-28 C, HVAC mode, preset such as defrost), locks, covers (trunk,
+frunk, charge port, windows), seat/steering heat (`select`), schedule times (`time`) and the
+buttons horn, flash lights and wake up. Still blocked: native polling, valet mode, remote start,
+forced data update, HomeLink, and the native charge limit (the owner limit keeps going through
+`home_energy_policy.set_ev_limit`). Car commands are never accepted as automation-rule actions.
+Every command needs the control role, CSRF, an explicit confirmation in the UI and is audited.
+Tesla Custom wakes a sleeping car for commands: each one costs Tesla API budget, which the
+local policy counter does not include (see ENERGY-POLICY.md). Starting/stopping charging by
+hand puts Tesla in the policy's manual hold until the configured resume time.
+
 ## Preferred Next Step: Official Tesla Fleet
 
 The old Tesla HTTP Proxy add-on repository states it has been unmaintained since

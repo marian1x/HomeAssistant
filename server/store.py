@@ -12,6 +12,11 @@ from cryptography.fernet import Fernet
 # the expiry (and the cookie) at most once per hour to avoid a write per request.
 SESSION_IDLE = 30 * 24 * 3600
 RENEW_AFTER = 3600
+SEED_PROFILES = (
+    ('iarna', 'Iarna', 'snow', {'season': 'Winter'}),
+    ('vara', 'Vara', 'sun', {'season': 'Summer'}),
+    ('auto', 'Automat dupa luna', 'auto', {'season': 'Auto'}),
+)
 
 
 class Store:
@@ -36,7 +41,16 @@ class Store:
                 must_change INTEGER NOT NULL DEFAULT 1, failures INTEGER NOT NULL DEFAULT 0, locked_until REAL NOT NULL DEFAULT 0,
                 disabled INTEGER NOT NULL DEFAULT 0, created REAL, created_by TEXT, last_login REAL);
             CREATE TABLE IF NOT EXISTS layouts (user TEXT PRIMARY KEY, data TEXT NOT NULL, updated REAL);
+            CREATE TABLE IF NOT EXISTS energy_profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, icon TEXT NOT NULL,
+                data TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0, updated REAL, updated_by TEXT);
+            CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         ''')
+        if not self.setting('profiles_seeded'):
+            # Starting point matching the policy's own season switch; the admin edits them freely.
+            for position, (pid, name, icon, values) in enumerate(SEED_PROFILES):
+                self.db.execute('INSERT OR IGNORE INTO energy_profiles(id,name,icon,data,position,updated,updated_by) VALUES (?,?,?,?,?,?,?)',
+                                (pid, name, icon, json.dumps(values), position, time.time(), 'system'))
+            self.setting('profiles_seeded', '1')
         columns = {row[1] for row in self.db.execute('PRAGMA table_info(users)')}
         if 'is_admin' not in columns:
             self.db.execute('ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0')
@@ -177,6 +191,45 @@ class Store:
         """Accepted commands per entity sent by this user, from the audit log."""
         rows = self.db.execute("SELECT entity,COUNT(*) FROM audit WHERE actor=? AND at>=? AND result='Acceptata de HA' GROUP BY entity", (user, since))
         return {entity: count for entity, count in rows}
+
+    # Small key/value table for server-wide (not per-user) state.
+    def setting(self, key, value=None):
+        if value is None:
+            row = self.db.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()
+            return row[0] if row else None
+        self.db.execute('INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (key, value))
+        self.db.commit()
+        return value
+
+    # Energy profiles (owner request 2026-11-25): named presets of policy values, shared by
+    # every client; only the configure role edits or applies them. HA validates on apply.
+    def profiles(self):
+        rows = self.db.execute('SELECT id,name,icon,data,updated,updated_by FROM energy_profiles ORDER BY position, name COLLATE NOCASE')
+        return [{'id': r[0], 'name': r[1], 'icon': r[2], 'values': json.loads(r[3]), 'updated': r[4], 'updated_by': r[5]} for r in rows]
+
+    def profile_get(self, profile_id):
+        return next((p for p in self.profiles() if p['id'] == profile_id), None)
+
+    def profile_save(self, profile_id, name, icon, values, actor):
+        position = self.db.execute('SELECT COALESCE(MAX(position), -1) + 1 FROM energy_profiles').fetchone()[0]
+        self.db.execute('INSERT INTO energy_profiles(id,name,icon,data,position,updated,updated_by) VALUES (?,?,?,?,?,?,?) '
+                        'ON CONFLICT(id) DO UPDATE SET name=excluded.name,icon=excluded.icon,data=excluded.data,updated=excluded.updated,updated_by=excluded.updated_by',
+                        (profile_id, name, icon, json.dumps(values, separators=(',', ':')), position, time.time(), actor))
+        self.db.commit()
+
+    def profile_delete(self, profile_id):
+        removed = self.db.execute('DELETE FROM energy_profiles WHERE id=?', (profile_id,)).rowcount
+        if self.active_profile() and self.active_profile()['id'] == profile_id:
+            self.db.execute("DELETE FROM settings WHERE key='active_profile'")
+        self.db.commit()
+        return removed == 1
+
+    def active_profile(self):
+        raw = self.setting('active_profile')
+        return json.loads(raw) if raw else None
+
+    def profile_activate(self, profile_id, actor):
+        self.setting('active_profile', json.dumps({'id': profile_id, 'at': time.time(), 'by': actor}))
 
     def prune(self):
         self.db.execute('DELETE FROM sessions WHERE expires < ?', (time.time(),))

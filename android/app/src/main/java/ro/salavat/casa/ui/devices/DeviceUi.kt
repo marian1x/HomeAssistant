@@ -35,6 +35,10 @@ import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Sensors
 import androidx.compose.material.icons.rounded.Speaker
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.StarBorder
+import androidx.compose.material3.IconButton
+import ro.salavat.casa.data.Layout
 import androidx.compose.material.icons.rounded.WaterDrop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -159,8 +163,9 @@ fun DeviceTile(d: Device, user: User?, onOpen: () -> Unit, modifier: Modifier = 
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun DeviceSheet(d: Device, user: User?, onDismiss: () -> Unit) {
+fun DeviceSheet(d: Device, user: User?, layout: Layout, onDismiss: () -> Unit) {
     val commands = LocalCommands.current
+    val favorite = d.id in layout.favorites
     val canControl = user?.canControl == true && controllable(d) && d.primary.valid
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(
@@ -175,6 +180,20 @@ fun DeviceSheet(d: Device, user: User?, onDismiss: () -> Unit) {
                 Column(Modifier.weight(1f)) {
                     Text(d.name, style = MaterialTheme.typography.titleLarge)
                     Text(listOf(d.area, d.manufacturer).filter { it.isNotBlank() }.joinToString(" · "), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                }
+                IconButton(onClick = {
+                    commands.layout { l -> l.copy(favorites = if (favorite) l.favorites - d.id else (l.favorites + d.id).take(100)) }
+                }) {
+                    Icon(if (favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder, if (favorite) "Scoate din favorite" else "Adaugă la favorite",
+                        tint = if (favorite) Energy.solar else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if (layout.views.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                layout.views.forEach { v ->
+                    val inside = d.id in v.items
+                    FilterChip(inside, {
+                        commands.layout { l -> l.copy(views = l.views.map { if (it.id == v.id) it.copy(items = if (inside) it.items - d.id else it.items + d.id) else it }) }
+                    }, label = { Text(v.name) }, leadingIcon = { Icon(viewIcon(v.icon), null, Modifier.size(16.dp)) })
                 }
             }
             Text(deviceReading(d), style = MaterialTheme.typography.headlineSmall.merge(Numeric), color = accent(d))

@@ -210,12 +210,19 @@ function App() {
     fetch(BASE + "api/layout").then((r) => (r.ok ? r.json() : null)).then((saved) => saved && setLayout({ ...EMPTY, ...saved })).catch(() => {});
   }, [userId]);
   useEffect(() => { if (userId) try { localStorage.setItem(layoutKey, JSON.stringify(layout)); } catch { /* storage off */ } }, [layout, userId]);
+  // The server pushes the saved layout in every snapshot: changes made in the APK (or another
+  // tab) appear here at once. A local edit still waiting to be saved is not overwritten.
+  const serverLayout = JSON.stringify(data?.layout || null);
+  useEffect(() => {
+    if (data?.layout && !layoutTimer.current) setLayout((now) => ({ ...now, ...data.layout }));
+  }, [serverLayout]);
   const refreshUsage = () => fetch(BASE + "api/layout").then((r) => (r.ok ? r.json() : null)).then((saved) => saved && setLayout((now) => ({ ...now, usage: saved.usage || {}, usage_days: saved.usage_days }))).catch(() => {});
   const changeLayout = (change: Partial<Layout>) => setLayout((now) => {
     const next = { ...now, ...change };
     clearTimeout(layoutTimer.current);
     layoutTimer.current = window.setTimeout(() => {
-      post("layout", { sort: next.sort, order: next.order, groups: next.groups }).catch((e) => setNotice(e.message));
+      layoutTimer.current = 0;
+      post("layout", { sort: next.sort, order: next.order, groups: next.groups, favorites: next.favorites, views: next.views }).catch((e) => setNotice(e.message));
     }, 400);
     return next;
   });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Battery, Car, House, Flame, Fan, RefreshCw, Save, Search, RotateCcw, ShieldCheck, Clock, AlertTriangle, Snowflake } from 'lucide-react';
+import { Battery, Car, House, Flame, Fan, RefreshCw, Save, Search, RotateCcw, ShieldCheck, Clock, AlertTriangle, Snowflake, Trash2 } from 'lucide-react';
 import { type Snapshot, format } from './model';
 import './energy-policy.css';
 
@@ -13,6 +13,52 @@ const fmt = (n: any, unit: string) => typeof n === 'number' && Number.isFinite(n
 
 const EV_MODE: Record<string, string> = { driving: 'in mers', charging: 'se incarca', plugged: 'conectata, fara incarcare', home: 'acasa', away: 'parcata departe', unknown: 'necunoscuta' };
 const EV_REASON: Record<string, string> = { step_up: 'salt de consum trifazat', step_down: 'scadere de consum trifazat', driving: 'in mers', charging: 'incarcare', plugged: 'conectata', away: 'departe', night: 'verificarea de la miezul noptii', solar: 'incarcare solara', idle: 'verificare de zi' };
+
+/* Energy profiles (owner request 2026-11-25): named presets of policy values kept on the
+   server, the same in the APK. Everyone sees them; only Admin mode applies, saves or deletes. */
+function Profiles({snapshot, policy, canConfigure, notify}: {snapshot: Snapshot; policy: Policy; canConfigure: boolean; notify: (m: string) => void}) {
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState('');
+  const [picked, setPicked] = useState<string[]>(['general']);
+  const [busy, setBusy] = useState(false);
+  const profiles = snapshot.profiles || [], active = snapshot.active_profile;
+  const matches = (values: Record<string, any>) => Object.entries(values).every(([k, v]) => policy.config[k] === v);
+  async function call(path: string, body: object = {}) {
+    setBusy(true);
+    try {
+      const r = await fetch(import.meta.env.BASE_URL + 'api/v1/energy-profiles' + path, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': snapshot.csrf}, body: JSON.stringify(body)});
+      const result = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(result.error || 'Profilul nu a fost salvat.');
+      return result;
+    } finally {setBusy(false);}
+  }
+  const usable = policy.schema.filter(f => f.group !== 'bindings' && f.kind !== 'entity');
+  async function create() {
+    const values = Object.fromEntries(usable.filter(f => picked.includes(f.group)).map(f => [f.key, policy.config[f.key]]));
+    try {await call('', {name: name.trim(), icon: 'star', values}); notify('Profil salvat din configuratia actuala.'); setCreating(false); setName('');}
+    catch (e: any) {notify(e.message);}
+  }
+  return <section className="policy-quota policy-profiles" aria-label="Profile"><header><Snowflake size={19}/><strong>Profile</strong><span>{canConfigure ? 'Aplica, salveaza sau sterge' : 'Doar administratorul aplica profile'}</span></header>
+    <div className="profile-list">{profiles.map(p => {
+      const on = active?.id === p.id, same = matches(p.values);
+      return <div key={p.id} className={'profile-chip' + (on ? ' active' : '')}>
+        <button className="button" disabled={!canConfigure || busy} title={Object.keys(p.values).join(', ')} onClick={async () => {
+          if (!window.confirm(`Aplici profilul "${p.name}"? Se schimba ${Object.keys(p.values).length} parametri; aparatele cu control automat se pot adapta imediat.`)) return;
+          try {const r = await call('/' + p.id + '/activate'); notify(`Profilul ${p.name} a fost aplicat (${r.changed.length} modificari).`);} catch (e: any) {notify(e.message);}
+        }}>{on && same ? <ShieldCheck size={15}/> : null}{p.name}{on && !same ? ' (modificat)' : ''}<small>{Object.keys(p.values).length}</small></button>
+        {canConfigure && <button className="icon-button" title={'Sterge ' + p.name} disabled={busy} onClick={async () => {
+          if (!window.confirm(`Stergi profilul "${p.name}"? Configuratia curenta nu se schimba.`)) return;
+          try {await call('/' + p.id + '/delete'); notify('Profil sters.');} catch (e: any) {notify(e.message);}
+        }}><Trash2 size={14}/></button>}
+      </div>;
+    })}
+    {canConfigure && !creating && <button className="button" onClick={() => setCreating(true)}><Save size={15}/>Salveaza configuratia ca profil</button>}</div>
+    {creating && <div className="profile-create"><input aria-label="Nume profil" placeholder="ex. Concediu, Ger, Canicula" maxLength={40} value={name} onChange={e => setName(e.target.value)}/>
+      <div className="profile-groups">{Object.entries(groups).filter(([g]) => usable.some(f => f.group === g)).map(([g, title]) => <label key={g}><input type="checkbox" checked={picked.includes(g)} onChange={e => setPicked(p => e.target.checked ? [...p, g] : p.filter(x => x !== g))}/>{title}</label>)}</div>
+      <span className="policy-actions"><button className="button" onClick={() => setCreating(false)}>Renunta</button><button className="button primary" disabled={busy || !name.trim() || !picked.length} onClick={create}><Save size={15}/>Salveaza</button></span>
+      <small>Profilul retine valorile actuale ale grupurilor bifate; editarea fina se face si din aplicatia Android.</small></div>}
+  </section>;
+}
 
 export default function EnergyPolicy({snapshot, canConfigure, canControl}: {snapshot: Snapshot; canConfigure: boolean; canControl: boolean}) {
   const [data, setData] = useState<Policy | null>(null);
@@ -41,7 +87,8 @@ export default function EnergyPolicy({snapshot, canConfigure, canControl}: {snap
     refresh();
     const timer = setInterval(refresh, 30000);
     return () => {alive = false; clearInterval(timer);};
-  }, [snapshot.connected, dirty]);
+    // policy_stamp: another browser or the APK saved the policy or applied a profile.
+  }, [snapshot.connected, dirty, snapshot.policy_stamp]);
   useEffect(() => {
     if (!canConfigure && data) {setDraft(data.config); setRevision(data.revision); setDirty(false);}
   }, [canConfigure]);
@@ -95,6 +142,7 @@ export default function EnergyPolicy({snapshot, canConfigure, canControl}: {snap
     </div>
     {status.cold_charge?.enabled && <section className="policy-quota" aria-label="Injectie din retea pe frig"><header><Snowflake size={19}/><strong>Incalzire din retea</strong><span>{status.cold_charge.active ? 'Injectie activa' : 'In asteptare'}</span></header><div><span>Baterie <strong>{typeof status.cold_charge.battery_temp === 'number' ? format(status.cold_charge.battery_temp, 1) + ' °C' : '--'}</strong></span><span>Porneste sub <strong>{data?.config.cold_charge_temp_c} °C</strong></span><span>Opreste la <strong>{data?.config.cold_charge_recover_c} °C</strong></span><span>Fereastra <strong>{data?.config.cold_charge_hours_before_sunrise} h inainte de rasarit</strong></span></div><small>{status.cold_charge.reason}{status.cold_charge.grid_charge_switch ? ' · comutator retea: ' + status.cold_charge.grid_charge_switch : ''}</small></section>}
     {status.tesla_quota && <section className="policy-quota" aria-label="Buget Tesla API"><header><Car size={19}/><strong>Tesla API</strong><span>{status.tesla_quota.polling_protected ? 'Polling periodic oprit' : 'Protectie polling neconfirmata'}</span></header><div><span>Citiri azi <strong>{status.tesla_quota.reads_day || 0} / {data?.config.ev_reads_daily}</strong></span><span>Citiri luna <strong>{status.tesla_quota.reads_month || 0} / {data?.config.ev_reads_monthly}</strong></span><span>Comenzi azi <strong>{status.tesla_quota.commands_day || 0} / {data?.config.ev_commands_daily}</strong></span><span>Comenzi luna <strong>{status.tesla_quota.commands_month || 0} / {data?.config.ev_commands_monthly}</strong></span></div><small>{status.tesla_quota.status || 'Fara cerere de actualizare'}{status.tesla_quota.mode ? ' · Masina: ' + (EV_MODE[status.tesla_quota.mode] || status.tesla_quota.mode) : ''}{status.tesla_quota.last_reason ? ' · Ultima citire: ' + (EV_REASON[status.tesla_quota.last_reason] || status.tesla_quota.last_reason) : ''}{' · Salturi de consum azi: ' + (status.tesla_quota.steps_day || 0) + ' / ' + (data?.config.ev_step_daily ?? '-')}</small></section>}
+    {data && <Profiles snapshot={snapshot} policy={data} canConfigure={canConfigure} notify={setMessage}/>}
     <ol className="policy-priorities">{[[House, 'Casa'], [Battery, 'Baterie'], [Car, 'Tesla'], [Flame, 'Boiler'], [Fan, 'Climatizare']].map(([Icon, title]: any, i) => <li key={title}><span>{i + 1}</span><Icon size={19}/><strong>{title}</strong></li>)}</ol>
     <p className="policy-reason">{status.reason || 'Se incarca starea controlerului.'}</p>
     <div className="policy-devices">{deviceMeta.map(({key, label, icon: Icon}) => {

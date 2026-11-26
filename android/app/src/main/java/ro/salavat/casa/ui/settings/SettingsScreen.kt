@@ -42,6 +42,10 @@ import ro.salavat.casa.data.Repository
 import ro.salavat.casa.data.Snapshot
 import ro.salavat.casa.data.ThemeMode
 import ro.salavat.casa.ui.LocalCommands
+import ro.salavat.casa.ui.LocalNav
+import ro.salavat.casa.ui.Sub
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import ro.salavat.casa.ui.components.GlassCard
 import ro.salavat.casa.update.UpdateState
 import ro.salavat.casa.update.Updater
@@ -56,6 +60,8 @@ fun SettingsScreen(s: Snapshot, repo: Repository, prefs: Prefs, updater: Updater
     val keepOn by prefs.keepScreenOn.collectAsState()
     val update by updater.state.collectAsState()
     var confirmAll by remember { mutableStateOf(false) }
+    var password by remember { mutableStateOf(false) }
+    val nav = LocalNav.current
     val user = s.user
     val paused = s.states[KILLSWITCH]?.state == "on"
 
@@ -87,6 +93,14 @@ fun SettingsScreen(s: Snapshot, repo: Repository, prefs: Prefs, updater: Updater
             Toggle("Ecran mereu pornit", "Pentru tableta de perete", keepOn, prefs::setKeepScreenOn)
         }
 
+        GlassCard {
+            Text("Administrare", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            TextButton(onClick = { nav.push(Sub.Policy) }) { Text("Politică energie și profile") }
+            if (user?.admin == true && user.canConfigure) TextButton(onClick = { nav.push(Sub.Audit) }) { Text("Jurnal de comenzi") }
+            if (user?.local == true) TextButton(onClick = { password = true }) { Text("Schimbă parola") }
+        }
+
         if (user?.canControl == true) GlassCard {
             Text("Pauză globală automatizări", style = MaterialTheme.typography.titleMedium)
             Text(
@@ -108,16 +122,21 @@ fun SettingsScreen(s: Snapshot, repo: Repository, prefs: Prefs, updater: Updater
             Text("Versiune ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
             when (val u = update) {
-                UpdateState.Unavailable -> Text("Build local, fără canal de actualizare (Firebase).", style = MaterialTheme.typography.bodySmall)
+                UpdateState.Unavailable -> Text("Build de dezvoltare: actualizările vin doar în versiunea semnată din GitHub.", style = MaterialTheme.typography.bodySmall)
                 UpdateState.Idle -> OutlinedButton(onClick = { updater.check() }) { Text("Caută actualizări") }
                 UpdateState.Checking -> LinearProgressIndicator(Modifier.fillMaxWidth())
                 UpdateState.UpToDate -> Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Ai ultima versiune.", Modifier.weight(1f)); TextButton(onClick = { updater.check() }) { Text("Verifică") }
                 }
+                UpdateState.NeedsPermission -> {
+                    Text("Pentru actualizare, permite aplicației să instaleze aplicații (o singură dată).", style = MaterialTheme.typography.bodySmall)
+                    Button(onClick = { updater.openInstallPermission() }) { Text("Deschide permisiunea") }
+                }
                 is UpdateState.Available -> {
-                    Text("Disponibilă: ${u.version}", style = MaterialTheme.typography.titleSmall)
-                    u.notes?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                    Button(onClick = { updater.install() }) { Text("Instalează") }
+                    Text("Disponibilă: ${u.release.version}", style = MaterialTheme.typography.titleSmall)
+                    u.release.notes.takeIf { it.isNotBlank() }?.let { Text(it.take(600), style = MaterialTheme.typography.bodySmall) }
+                    Button(onClick = { updater.install(u.release) }) { Text("Descarcă și instalează") }
+                    Text("Verific semnătura APK-ului înainte de instalare; Android cere confirmarea ta.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 is UpdateState.Downloading -> {
                     Text("Se descarcă ${u.percent}%")
@@ -140,12 +159,42 @@ fun SettingsScreen(s: Snapshot, repo: Repository, prefs: Prefs, updater: Updater
         }
     }
 
+    if (password) PasswordDialog { password = false }
+
     if (confirmAll) AlertDialog(
         onDismissRequest = { confirmAll = false },
         title = { Text("Deconectezi toate dispozitivele?") },
         text = { Text("Se închid toate sesiunile Casa ale contului tău: telefon, tabletă, browsere.") },
         confirmButton = { TextButton(onClick = { confirmAll = false; scope.launch { runCatching { repo.logout(true) } } }) { Text("Deconectează") } },
         dismissButton = { TextButton(onClick = { confirmAll = false }) { Text("Renunță") } },
+    )
+}
+
+/** Casa accounts change their own password (server checks length/strength, CSRF, audit). */
+@Composable
+private fun PasswordDialog(onDone: () -> Unit) {
+    val commands = LocalCommands.current
+    var current by remember { mutableStateOf("") }
+    var new by remember { mutableStateOf("") }
+    var again by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDone,
+        title = { Text("Schimbă parola") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(current, { current = it }, label = { Text("Parola actuală") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+                OutlinedTextField(new, { new = it }, label = { Text("Parola nouă") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
+                OutlinedTextField(again, { again = it }, label = { Text("Repetă parola nouă") }, singleLine = true, isError = again.isNotEmpty() && again != new,
+                    visualTransformation = PasswordVisualTransformation())
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = current.isNotEmpty() && new.length >= 12 && new == again, onClick = {
+                commands.launch("password", "Parola a fost schimbată.") { commands.repo.changePassword(current, new) }
+                onDone()
+            }) { Text("Schimbă") }
+        },
+        dismissButton = { TextButton(onClick = onDone) { Text("Renunță") } },
     )
 }
 

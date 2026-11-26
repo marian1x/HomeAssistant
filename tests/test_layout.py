@@ -12,7 +12,7 @@ LAYOUT = {'sort': 'manual', 'order': ['baby-spots', 'light.kitchen', '64f01c0359
 
 def test_layout_is_saved_per_user_with_csrf_and_usage_from_the_audit_log(client):
     sid, headers = signin(client)
-    assert client.get('/casa/api/layout').json() == {'sort': 'default', 'order': [], 'groups': [], 'usage': {}, 'usage_days': 30}
+    assert client.get('/casa/api/layout').json() == {'sort': 'default', 'order': [], 'groups': [], 'favorites': [], 'views': [], 'usage': {}, 'usage_days': 30}
     assert client.post('/casa/api/layout', json=LAYOUT).status_code == 403, 'CSRF token and Origin are required'
     assert client.post('/casa/api/layout', json=LAYOUT, headers={'Origin': 'https://evil.example', 'X-CSRF-Token': headers['X-CSRF-Token']}).status_code == 403
     assert client.post('/casa/api/layout', json=LAYOUT, headers=headers).json() == {'saved': True}

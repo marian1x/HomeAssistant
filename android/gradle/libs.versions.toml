@@ -10,9 +10,7 @@ okhttp = "4.12.0"
 coroutines = "1.10.2"
 biometric = "1.1.0"
 splashscreen = "1.0.1"
-firebaseBom = "33.7.0"
-appDistribution = "16.0.0-beta21"
-googleServices = "4.4.4"
+work = "2.12.0"
 junit = "4.13.2"
 
 [libraries]
@@ -34,14 +32,10 @@ androidx-splashscreen = { group = "androidx.core", name = "core-splashscreen", v
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 okhttp-sse = { group = "com.squareup.okhttp3", name = "okhttp-sse", version.ref = "okhttp" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
-firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
-# App Distribution is a beta SDK, not managed by the BoM.
-firebase-appdistribution = { group = "com.google.firebase", name = "firebase-appdistribution", version.ref = "appDistribution" }
-firebase-appdistribution-api = { group = "com.google.firebase", name = "firebase-appdistribution-api", version.ref = "appDistribution" }
+androidx-work = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 json = { group = "org.json", name = "json", version = "20240303" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
-google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }

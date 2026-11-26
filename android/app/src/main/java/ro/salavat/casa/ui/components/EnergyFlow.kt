@@ -9,6 +9,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -81,7 +84,7 @@ private data class Link(val from: Offset, val to: Offset, val kw: Double?, val c
  * with more power, in the real direction (import vs export, charge vs discharge).
  */
 @Composable
-fun EnergyFlow(f: Flows, modifier: Modifier = Modifier) {
+fun EnergyFlow(f: Flows, modifier: Modifier = Modifier, onNode: ((String) -> Unit)? = null) {
     val still = reducedMotion()
     val phase by rememberInfiniteTransition(label = "flow").animateFloat(
         0f, 1f, infiniteRepeatable(tween(2400, easing = LinearEasing), RepeatMode.Restart), label = "p",
@@ -134,17 +137,18 @@ fun EnergyFlow(f: Flows, modifier: Modifier = Modifier) {
             else -> "Rețea"
         }
         val batLabel = f.soc?.let { "Baterie ${fmt(it, 0)}%" } ?: "Baterie"
-        Node(solar, Icons.Rounded.WbSunny, Energy.solar, "Solar", f.solar, labelOnTop = true)
-        Node(grid, Icons.Rounded.Power, if ((gridNet ?: 0.0) < 0) Energy.export else Energy.grid, gridLabel, gridNet?.let { kotlin.math.abs(it) })
-        Node(home, Icons.Rounded.Home, Energy.load, "Casa", f.load, big = true)
-        Node(battery, Icons.Rounded.BatteryChargingFull, Energy.battery, batLabel, batNet?.let { kotlin.math.abs(it) }, fill = f.soc)
-        Node(tesla, Icons.Rounded.ElectricCar, Energy.tesla, "Tesla", f.tesla)
-        Node(boiler, Icons.Rounded.LocalFireDepartment, Energy.boiler, "Boiler", f.boiler)
+        fun tap(key: String): (() -> Unit)? = onNode?.let { { it(key) } }
+        Node(solar, Icons.Rounded.WbSunny, Energy.solar, "Solar", f.solar, labelOnTop = true, onClick = tap("solar"))
+        Node(grid, Icons.Rounded.Power, if ((gridNet ?: 0.0) < 0) Energy.export else Energy.grid, gridLabel, gridNet?.let { kotlin.math.abs(it) }, onClick = tap("grid"))
+        Node(home, Icons.Rounded.Home, Energy.load, "Casa", f.load, big = true, onClick = tap("house"))
+        Node(battery, Icons.Rounded.BatteryChargingFull, Energy.battery, batLabel, batNet?.let { kotlin.math.abs(it) }, fill = f.soc, onClick = tap("battery"))
+        Node(tesla, Icons.Rounded.ElectricCar, Energy.tesla, "Tesla", f.tesla, onClick = tap("tesla"))
+        Node(boiler, Icons.Rounded.LocalFireDepartment, Energy.boiler, "Boiler", f.boiler, onClick = tap("boiler"))
     }
 }
 
 @Composable
-private fun Node(at: Offset, icon: ImageVector, color: Color, label: String, kw: Double?, big: Boolean = false, fill: Double? = null, labelOnTop: Boolean = false) {
+private fun Node(at: Offset, icon: ImageVector, color: Color, label: String, kw: Double?, big: Boolean = false, fill: Double? = null, labelOnTop: Boolean = false, onClick: (() -> Unit)? = null) {
     val d = LocalDensity.current
     val size = if (big) 68.dp else 54.dp
     val width = 104.dp
@@ -158,7 +162,8 @@ private fun Node(at: Offset, icon: ImageVector, color: Color, label: String, kw:
         )
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
     }
-    Column(Modifier.offset(x, y).width(width), horizontalAlignment = Alignment.CenterHorizontally) {
+    val tap = if (onClick != null) Modifier.clip(RoundedCornerShape(18.dp)).clickable(onClickLabel = "Detalii $label", onClick = onClick) else Modifier
+    Column(Modifier.offset(x, y).width(width).then(tap), horizontalAlignment = Alignment.CenterHorizontally) {
         if (labelOnTop) Column(Modifier.height(labels), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = androidx.compose.foundation.layout.Arrangement.Bottom) { Captions() }
         Box(
             Modifier.size(size)

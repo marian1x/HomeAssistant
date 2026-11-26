@@ -113,6 +113,91 @@ class Repository(val api: Api) {
         }
     }
 
+    /** Every write: our Origin + the session CSRF token; a 401 signs out. */
+    private suspend fun write(path: String, body: JSONObject = JSONObject()): Any {
+        val csrf = _snapshot.value?.csrf ?: throw ApiException(401, "Sesiune expirată.")
+        try {
+            return api.post(path, body, csrf)
+        } catch (e: ApiException) {
+            if (e.status == 401) signedOut()
+            throw e
+        }
+    }
+
+    // ---- Layout (order, groups, favorites, views): saved per user, pushed back by SSE ----
+
+    suspend fun saveLayout(layout: Layout) {
+        val before = _snapshot.value
+        before?.let { _snapshot.value = it.copy(layout = layout) }
+        try {
+            write("/api/layout", layout.json())
+        } catch (e: Exception) {
+            // Only our own display preference was shown early; restore the server's version.
+            before?.let { b -> _snapshot.value?.let { _snapshot.value = it.copy(layout = b.layout) } }
+            throw e
+        }
+    }
+
+    suspend fun usage(): Map<String, Int> {
+        val o = api.get("/api/layout") as JSONObject
+        val u = o.optJSONObject("usage") ?: return emptyMap()
+        return u.keys().asSequence().associateWith { u.optInt(it) }
+    }
+
+    // ---- Energy policy and profiles ----
+
+    suspend fun policy(): Policy = Policy.parse(api.get("/api/v1/energy-policy") as JSONObject)
+
+    suspend fun configure(values: JSONObject, revision: Int): Policy =
+        Policy.parse(write("/api/v1/energy-policy", JSONObject().put("values", values).put("revision", revision)) as JSONObject)
+
+    suspend fun resume(device: String): Policy =
+        Policy.parse(write("/api/v1/energy-policy/resume", JSONObject().put("device", device)) as JSONObject)
+
+    suspend fun activateProfile(id: String) { write("/api/v1/energy-profiles/$id/activate") }
+
+    suspend fun saveProfile(id: String?, name: String, icon: String, values: JSONObject) {
+        val body = JSONObject().put("name", name).put("icon", icon).put("values", values)
+        write(if (id == null) "/api/v1/energy-profiles" else "/api/v1/energy-profiles/$id", body)
+    }
+
+    suspend fun deleteProfile(id: String) { write("/api/v1/energy-profiles/$id/delete") }
+
+    // ---- Tesla ----
+
+    suspend fun teslaLog(days: Int): TeslaLog = TeslaLog.parse(api.get("/api/tesla/log?days=$days") as JSONObject)
+
+    suspend fun teslaDrive(id: Int): DriveDetail = DriveDetail.parse(api.get("/api/tesla/drive/$id") as JSONObject)
+
+    suspend fun teslaLimit(soc: Int) { write("/api/tesla/limit", JSONObject().put("soc", soc)) }
+
+    suspend fun chargePrice(id: Int, price: Double?, note: String) {
+        val body = JSONObject().put("id", id).put("note", note.take(120))
+        body.put("price_kwh", price ?: JSONObject.NULL)
+        write("/api/tesla/charge-price", body)
+    }
+
+    // ---- Battery ----
+
+    suspend fun bms(): Bms = Bms.parse(api.get("/api/battery/bms") as JSONObject)
+
+    suspend fun batteryHistory(hours: Int): List<BatteryPoint> {
+        val o = api.get("/api/battery/history?hours=$hours") as JSONObject
+        return o.optJSONArray("points")?.objects()?.map {
+            BatteryPoint(it.optLong("time"), it.optDoubleOrNull("soc"), it.optDoubleOrNull("temp"), it.optDoubleOrNull("power"))
+        } ?: emptyList()
+    }
+
+    // ---- Administration ----
+
+    suspend fun audit(): List<AuditRow> = (api.get("/api/audit") as JSONArray).objects().map {
+        AuditRow(it.optDouble("at"), it.optString("name", "Utilizator"), it.optString("action"), it.optString("entity"), it.optString("result"))
+    }
+
+    suspend fun changePassword(current: String, new: String) {
+        write("/api/me/password", JSONObject().put("current", current).put("new", new))
+    }
+
     suspend fun history(period: String): History {
         val o = api.get("/api/history?period=$period") as JSONObject
         val pts = o.optJSONArray("points") ?: JSONArray()

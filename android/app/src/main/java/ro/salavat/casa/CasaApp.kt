@@ -22,5 +22,6 @@ class CasaApp : Application() {
         repo = Repository(api)
         prefs = Prefs(this)
         updater = Updater(this, prefs)
+        updater.schedule()
     }
 }

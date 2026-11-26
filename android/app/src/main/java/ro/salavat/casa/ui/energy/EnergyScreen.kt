@@ -46,6 +46,12 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.background
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material3.Icon
+import ro.salavat.casa.ui.LocalNav
+import ro.salavat.casa.ui.Sub
+import ro.salavat.casa.ui.Tab
 import ro.salavat.casa.data.History
 import ro.salavat.casa.data.HistoryPoint
 import ro.salavat.casa.data.Repository
@@ -65,6 +71,7 @@ import java.util.Locale
 @Composable
 fun EnergyScreen(s: Snapshot, repo: Repository, padding: PaddingValues) {
     val f = Flows.of(s)
+    val nav = LocalNav.current
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState())
             .padding(start = 16.dp, end = 16.dp, top = padding.calculateTopPadding() + 8.dp, bottom = padding.calculateBottomPadding() + 24.dp),
@@ -73,14 +80,28 @@ fun EnergyScreen(s: Snapshot, repo: Repository, padding: PaddingValues) {
         Text("Energie", style = MaterialTheme.typography.headlineMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), maxItemsInEachRow = 2) {
             val m = Modifier.weight(1f)
-            Metric("Producție solară", f.solar, "kW", Energy.solar, m)
-            Metric("Consum casă", f.load, "kW", Energy.load, m)
-            Metric("Import rețea", f.import, "kW", Energy.grid, m)
-            Metric("Injecție", f.export, "kW", Energy.export, m)
-            Metric("Tesla", f.tesla, "kW", Energy.tesla, m)
-            Metric("Boiler (estimat)", f.boiler, "kW", Energy.boiler, m)
+            Metric("Producție solară", f.solar, "kW", Energy.solar, m) { nav.push(Sub.Inverter) }
+            Metric("Consum casă", f.load, "kW", Energy.load, m) { nav.push(Sub.House) }
+            Metric("Import rețea", f.import, "kW", Energy.grid, m) { nav.push(Sub.Grid) }
+            Metric("Injecție", f.export, "kW", Energy.export, m) { nav.push(Sub.Grid) }
+            Metric("Tesla", f.tesla, "kW", Energy.tesla, m) { nav.go(Tab.TESLA) }
+            Metric("Boiler (estimat)", f.boiler, "kW", Energy.boiler, m) { nav.open("boiler") }
         }
-        BatteryCard(s, f)
+        BatteryCard(s, f) { nav.push(Sub.Battery) }
+        GlassCard(onClick = { nav.push(Sub.Policy) }) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Politică energie și profile", style = MaterialTheme.typography.titleMedium)
+                    val active = s.activeProfile?.let { a -> s.profiles.firstOrNull { it.id == a.id } }
+                    Text(
+                        (active?.let { "Profil activ: ${it.name}" } ?: "${s.profiles.size} profile disponibile") +
+                            " · " + (s.states["sensor.home_energy_policy_status"]?.state ?: "stare necunoscută"),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Icon(Icons.Rounded.ChevronRight, null)
+            }
+        }
         HistoryCard(repo)
         GlassCard {
             Text("Azi și mâine", style = MaterialTheme.typography.titleMedium)
@@ -95,8 +116,8 @@ fun EnergyScreen(s: Snapshot, repo: Repository, padding: PaddingValues) {
 }
 
 @Composable
-private fun Metric(label: String, value: Double?, unit: String, color: Color, modifier: Modifier) {
-    GlassCard(modifier) {
+private fun Metric(label: String, value: Double?, unit: String, color: Color, modifier: Modifier, onClick: () -> Unit) {
+    GlassCard(modifier, onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).background(color, CircleShape))
             Spacer(Modifier.width(8.dp))
@@ -116,10 +137,10 @@ private fun Line(label: String, value: Double?, unit: String) {
 }
 
 @Composable
-private fun BatteryCard(s: Snapshot, f: Flows) {
+private fun BatteryCard(s: Snapshot, f: Flows, onClick: () -> Unit) {
     val temp = s.binding("batteryTemp")?.number
     val net = f.batteryNet
-    GlassCard {
+    GlassCard(onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Ring(f.soc?.toFloat()?.div(100f), Energy.battery, size = 104.dp) {
                 Text(f.soc?.let { "${fmt(it, 0)}%" } ?: "--", style = MaterialTheme.typography.headlineSmall)

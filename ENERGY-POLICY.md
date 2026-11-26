@@ -170,6 +170,23 @@ grid feedback limit discretionary consumption, but they are not revenue-grade me
   grid from the Deye flows every 30 s. Solar is valued at the export price, battery energy at
   the export price / 90 %, grid at the import price; station prices are entered per charge.
 
+## Energy profiles and one shared state (owner request 2026-11-25)
+
+Profiles are named presets of policy values (seeded: Iarna `season=Winter`, Vara
+`season=Summer`, Automat `season=Auto`), stored by the web server (`energy_profiles` table,
+`server/store.py`) and identical in browser and APK. Everyone sees them; creating, editing,
+deleting and applying need the configure role (same as editing the policy). A profile may not
+contain device bindings (`bindings` group / entity fields). Applying sends only the values that
+differ from the current config through `home_energy_policy.configure` with the revision guard,
+so HA validates them again. API: `GET/POST /casa/api/v1/energy-profiles`,
+`POST .../{id}`, `.../{id}/delete`, `.../{id}/activate`; all audited.
+
+The server is the single source of truth: snapshots now include the user's layout (order,
+groups, favorites, views), the profiles, the active profile and a `policy_stamp`. Any change
+made through Casa (policy, profile, owner limit, resume, layout) pushes a fresh snapshot to
+every open stream at once; clients re-read the policy when the stamp changes. A layout POST
+that omits fields keeps their saved values, so an older client cannot erase favorites/views.
+
 ## Cold-morning grid heat assist (owner decision 2026-11-25)
 
 New policy feature (`coldcharge.py` pure logic + `runtime.cold_charge`, config group `battery`).

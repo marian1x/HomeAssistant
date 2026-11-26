@@ -7,10 +7,10 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-// Firebase (App Distribution in-app updates) is active only when google-services.json
-// is present: CI writes it from a secret; local builds work without it.
-val hasFirebase = file("google-services.json").exists()
-if (hasFirebase) apply(plugin = "com.google.gms.google-services")
+// In-app updates come from GitHub Releases of this public repository (owner decision
+// 2026-11-25, no Firebase). Override with -PupdateRepo=owner/repo, e.g. a releases-only
+// public repo once the source repo becomes private again.
+val updateRepo = (project.findProperty("updateRepo") as String?) ?: "marian1x/HomeAssistant"
 
 // Release signing secrets stay out of git (keystore.properties, written by CI).
 val keystorePropertiesFile = rootProject.file("keystore.properties")
@@ -84,7 +84,9 @@ androidComponents {
     onVariants { variant ->
         val base = if (variant.buildType == "mock") "http://10.0.2.2:8787/casa" else "https://salavat.home.ro/casa"
         variant.buildConfigFields?.put("BASE_URL", BuildConfigField("String", "\"$base\"", "Casa backend (server/app.py)"))
-        variant.buildConfigFields?.put("HAS_FIREBASE", BuildConfigField("boolean", hasFirebase.toString(), "google-services.json present"))
+        variant.buildConfigFields?.put("UPDATE_REPO", BuildConfigField("String", "\"$updateRepo\"", "GitHub repo with APK releases"))
+        // Only signed release builds update themselves; debug/mock builds never replace the app.
+        variant.buildConfigFields?.put("UPDATES", BuildConfigField("boolean", (variant.buildType == "release").toString(), "in-app updater enabled"))
     }
 }
 
@@ -109,9 +111,7 @@ dependencies {
     implementation(libs.okhttp.sse)
     implementation(libs.kotlinx.coroutines.android)
 
-    implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.appdistribution.api)
-    implementation(libs.firebase.appdistribution)
+    implementation(libs.androidx.work)
 
     debugImplementation(libs.androidx.ui.tooling)
     testImplementation(libs.junit)

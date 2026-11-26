@@ -17,7 +17,13 @@ export type Snapshot = {
   areas: any[];
   floors?: { floor_id: string; name: string; level?: number }[];
   house?: HousePlan;
+  // Shared server state (2026-11-25): the same in browser and APK, pushed by SSE.
+  layout?: { sort: 'manual' | 'usage' | 'default'; order: string[]; groups: string[]; favorites: string[]; views: { id: string; name: string; icon: string; items: string[] }[] } | null;
+  profiles?: EnergyProfile[];
+  active_profile?: { id: string; at: number; by: string } | null;
+  policy_stamp?: number;
 };
+export type EnergyProfile = { id: string; name: string; icon: string; values: Record<string, any>; updated?: number; updated_by?: string };
 export type HousePlan = {
   floors: { name: string; level: number; icon?: string }[];
   rooms: { key: string; name: string; floor: string; ha_area_id?: string }[];

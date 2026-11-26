@@ -58,6 +58,25 @@ def publish(peer, entity=None):
             queue.put_nowait(True)
 
 
+# Browser and app are views of the same server state: shared changes made through Casa
+# (policy, profiles, owner limit) bump this stamp and push a fresh snapshot to every open
+# stream; clients re-read the policy when it changes. Per-user layout goes to that user only.
+policy_stamp = {'n': 0}
+
+
+def publish_all(policy=False):
+    if policy:
+        policy_stamp['n'] += 1
+    for peer in list(peers.values()):
+        publish(peer)
+
+
+def publish_user(user_id):
+    for sid, peer in list(peers.items()):
+        if (sid == SERVICE and str(user_id).startswith('local:')) or (peer.profile and peer.profile.get('id') == user_id):
+            publish(peer)
+
+
 async def sweep():
     for sid, payload in store.expired():
         if not payload.get('refresh_token'):
@@ -209,11 +228,14 @@ def person(peer, session):
 
 
 def snapshot(peer, session):
-    return {'user': person(peer, session),
+    user = person(peer, session)
+    return {'user': user,
             'connected': peer.connected, 'last_update': peer.last_update, 'csrf': session['csrf'],
             'states': peer.states, 'entities': list(peer.entities.values()), 'devices': peer.devices, 'areas': peer.areas,
             'floors': getattr(peer, 'floors', []), 'house': HOUSE,
-            'bindings': BINDINGS, 'helpers': HELPERS}
+            'bindings': BINDINGS, 'helpers': HELPERS,
+            'layout': layout_of(user['id']) if user else None,
+            'profiles': store.profiles(), 'active_profile': store.active_profile(), 'policy_stamp': policy_stamp['n']}
 
 
 @app.get(BASE + '/auth/login')
@@ -339,6 +361,7 @@ async def energy_config(data: EnergyConfig, request: Request):
         result = await peer.call({'type': 'call_service', 'domain': 'home_energy_policy', 'service': 'configure',
                                  'service_data': data.model_dump(), 'return_response': True})
     store.log(profile['id'], 'energy_policy_configure', 'home_energy_policy', 'Configuratie validata de HA')
+    publish_all(policy=True)
     return result.get('response', result)
 
 
@@ -349,6 +372,7 @@ async def energy_resume(data: EnergyResume, request: Request):
         result = await peer.call({'type': 'call_service', 'domain': 'home_energy_policy', 'service': 'resume_device',
                                  'service_data': data.model_dump(), 'return_response': True})
     store.log(profile['id'], 'energy_policy_resume', data.device, 'Control automat reluat')
+    publish_all(policy=True)
     return result.get('response', result)
 
 
@@ -404,6 +428,7 @@ async def tesla_limit(data: TeslaLimit, request: Request):
         result = await peer.call({'type': 'call_service', 'domain': 'home_energy_policy', 'service': 'set_ev_limit',
                                  'service_data': data.model_dump(), 'return_response': True})
     store.log(profile['id'], 'tesla_limit', 'number.salavat_t3_charge_limit', f'Limita incarcare {data.soc}%')
+    publish_all(policy=True)
     return (result.get('response', result) or {}).get('status', {}).get('ev_limit', {'soc': data.soc})
 
 
@@ -744,19 +769,38 @@ LAYOUT_KEY = Annotated[str, Field(pattern=r'^[A-Za-z0-9_.:@+-]{1,200}$')]
 USAGE_DAYS = 30
 
 
-class Layout(BaseModel):
+VIEW_ICONS = Literal['star', 'home', 'sofa', 'bed', 'kitchen', 'light', 'climate', 'power', 'car', 'sun', 'moon', 'shield', 'water', 'media', 'child', 'work']
+EMPTY_LAYOUT = {'sort': 'default', 'order': [], 'groups': [], 'favorites': [], 'views': []}
+
+
+class View(BaseModel):
+    # A named, user-chosen set of devices (e.g. "Seara", "Copii"), shown as a tab on Home.
     model_config = ConfigDict(extra='forbid', strict=True)
-    sort: Literal['manual', 'usage', 'default']
-    order: list[LAYOUT_KEY] = Field(max_length=500)
-    groups: list[Literal['lights', 'climate', 'water', 'power', 'media', 'mobility']] = Field(max_length=6)
+    id: Annotated[str, Field(pattern=r'^[a-z0-9-]{1,40}$')]
+    name: str = Field(min_length=1, max_length=40)
+    icon: VIEW_ICONS = 'star'
+    items: list[LAYOUT_KEY] = Field(max_length=200)
+
+
+class Layout(BaseModel):
+    # Fields left out keep their saved value, so an older client cannot erase favorites/views.
+    model_config = ConfigDict(extra='forbid', strict=True)
+    sort: Literal['manual', 'usage', 'default'] = 'default'
+    order: list[LAYOUT_KEY] = Field(default_factory=list, max_length=500)
+    groups: list[Literal['lights', 'climate', 'water', 'power', 'media', 'mobility']] = Field(default_factory=list, max_length=6)
+    favorites: list[LAYOUT_KEY] = Field(default_factory=list, max_length=100)
+    views: list[View] = Field(default_factory=list, max_length=12)
+
+
+def layout_of(user_id):
+    return {**EMPTY_LAYOUT, **(store.layout_get(user_id) or {})}
 
 
 @app.get(BASE + '/api/layout')
 async def layout(request: Request):
     # Every role may arrange its own view; nothing here reaches HA.
     _, _, profile = await access(request)
-    saved = store.layout_get(profile['id']) or {'sort': 'default', 'order': [], 'groups': []}
-    return {**saved, 'usage': store.usage(profile['id'], time.time() - USAGE_DAYS * 86400), 'usage_days': USAGE_DAYS}
+    return {**layout_of(profile['id']), 'usage': store.usage(profile['id'], time.time() - USAGE_DAYS * 86400), 'usage_days': USAGE_DAYS}
 
 
 @app.post(BASE + '/api/layout')
@@ -764,10 +808,96 @@ async def save_layout(data: Layout, request: Request):
     _, session, profile = await access(request)
     if request.headers.get('origin') != ORIGIN or not hmac.compare_digest(request.headers.get('x-csrf-token', ''), session['csrf']):
         raise Rejected('Cerere neautorizata.', 403)
-    if len(set(data.order)) != len(data.order) or len(set(data.groups)) != len(data.groups):
+    lists = [data.order, data.groups, data.favorites, [v.id for v in data.views]] + [v.items for v in data.views]
+    if any(len(set(items)) != len(items) for items in lists):
         raise Rejected('Ordinea contine elemente duplicate.', 422)
-    store.layout_set(profile['id'], data.model_dump())
+    store.layout_set(profile['id'], {**layout_of(profile['id']), **data.model_dump(exclude_unset=True)})
+    publish_user(profile['id'])
     return {'saved': True}
+
+
+PROFILE_KEY = Annotated[str, Field(pattern=r'^[a-z0-9_]{1,64}$')]
+PROFILE_VALUE = bool | int | float | Annotated[str, Field(max_length=64)]
+PROFILE_ICONS = Literal['snow', 'sun', 'auto', 'leaf', 'home', 'away', 'moon', 'bolt', 'star', 'party']
+
+
+class EnergyProfile(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    name: str = Field(min_length=1, max_length=40)
+    icon: PROFILE_ICONS = 'star'
+    values: dict[PROFILE_KEY, PROFILE_VALUE] = Field(max_length=160)
+
+
+async def checked_values(peer, values):
+    # Profiles hold behaviour, never device bindings; HA validates ranges again on apply.
+    policy = await peer.call({'type': 'home_energy_policy/get'})
+    schema = {f['key']: f for f in (policy or {}).get('schema', [])}
+    if schema:
+        unknown = [k for k in values if k not in schema or schema[k].get('group') == 'bindings' or schema[k].get('kind') == 'entity']
+        if unknown:
+            raise Rejected('Parametri necunoscuti sau nepermisi in profil: ' + ', '.join(unknown[:5]), 422)
+    return values
+
+
+@app.get(BASE + '/api/v1/energy-profiles')
+async def energy_profiles(request: Request):
+    await access(request)
+    return {'profiles': store.profiles(), 'active': store.active_profile()}
+
+
+@app.post(BASE + '/api/v1/energy-profiles')
+async def energy_profile_create(data: EnergyProfile, request: Request):
+    peer, _, profile = await access(request, 'configure', True)
+    if len(store.profiles()) >= 20:
+        raise Rejected('Maxim 20 de profiluri.', 422)
+    profile_id = 'p' + secrets.token_hex(6)
+    store.profile_save(profile_id, data.name.strip(), data.icon, await checked_values(peer, data.values), profile['id'])
+    store.log(profile['id'], 'energy_profile_save', data.name.strip(), 'Profil creat')
+    publish_all()
+    return store.profile_get(profile_id)
+
+
+@app.post(BASE + '/api/v1/energy-profiles/{profile_id}')
+async def energy_profile_update(profile_id: str, data: EnergyProfile, request: Request):
+    peer, _, profile = await access(request, 'configure', True)
+    if not store.profile_get(profile_id):
+        raise Rejected('Profil inexistent.', 404)
+    store.profile_save(profile_id, data.name.strip(), data.icon, await checked_values(peer, data.values), profile['id'])
+    store.log(profile['id'], 'energy_profile_save', data.name.strip(), 'Profil modificat')
+    publish_all()
+    return store.profile_get(profile_id)
+
+
+@app.post(BASE + '/api/v1/energy-profiles/{profile_id}/delete')
+async def energy_profile_delete(profile_id: str, request: Request):
+    _, _, profile = await access(request, 'configure', True)
+    item = store.profile_get(profile_id)
+    if not item or not store.profile_delete(profile_id):
+        raise Rejected('Profil inexistent.', 404)
+    store.log(profile['id'], 'energy_profile_delete', item['name'], 'Profil sters')
+    publish_all()
+    return {'deleted': True}
+
+
+@app.post(BASE + '/api/v1/energy-profiles/{profile_id}/activate')
+async def energy_profile_activate(profile_id: str, request: Request):
+    peer, _, profile = await access(request, 'configure', True)
+    item = store.profile_get(profile_id)
+    if not item:
+        raise Rejected('Profil inexistent.', 404)
+    async with peer.command_lock:
+        current = await peer.call({'type': 'home_energy_policy/get'}) or {}
+        config = current.get('config', {})
+        changes = {k: v for k, v in item['values'].items() if config.get(k) != v}
+        result = current
+        if changes:
+            response = await peer.call({'type': 'call_service', 'domain': 'home_energy_policy', 'service': 'configure',
+                                        'service_data': {'values': changes, 'revision': current.get('revision', 0)}, 'return_response': True})
+            result = (response or {}).get('response', response)
+    store.profile_activate(profile_id, profile['id'])
+    store.log(profile['id'], 'energy_profile_apply', item['name'], f'Profil aplicat ({len(changes)} modificari)')
+    publish_all(policy=True)
+    return {'active': store.active_profile(), 'changed': sorted(changes), 'policy': result}
 
 
 class LocalUserEdit(BaseModel):

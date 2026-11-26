@@ -3,8 +3,15 @@
    "usage" ranks by the user's accepted commands of the last 30 days (audit log). */
 
 export type Sort = 'manual' | 'usage' | 'default';
-export type Layout = { sort: Sort; order: string[]; groups: string[]; usage: Record<string, number>; usage_days?: number };
-export const EMPTY: Layout = { sort: 'default', order: [], groups: [], usage: {} };
+export type View = { id: string; name: string; icon: string; items: string[] };
+export type Layout = { sort: Sort; order: string[]; groups: string[]; favorites: string[]; views: View[]; usage: Record<string, number>; usage_days?: number };
+export const EMPTY: Layout = { sort: 'default', order: [], groups: [], favorites: [], views: [], usage: {} };
+
+/** Favorites / a named view (created in the browser or the APK), in the saved order. */
+export function pick<T extends Item>(items: T[], ids: string[]): T[] {
+  const byId = new Map(items.map((d) => [d.id, d]));
+  return ids.map((id) => byId.get(id)).filter((d): d is T => !!d);
+}
 export const GROUPS = ['lights', 'climate', 'water', 'power', 'media', 'mobility'];
 type Item = { id: string; primary: { entity_id: string }; entries?: { entity_id: string }[] };
 

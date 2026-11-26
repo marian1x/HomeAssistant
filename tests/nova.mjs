@@ -236,7 +236,12 @@ try{
     await tesla.getByRole('img',{name:'Nivel baterie 64%, limita de incarcare 80%'}).waitFor();
     for(const text of ['Adormita','312 km','18,5','48.214','12,4','Conectata, nu incarca','Acasa','Incuiate','Inchise','Ultimele date: 10 nov., 08:15','Fleet Telemetry','In asteptare','$0,12 / $5,50','oprire automata peste $2'])
       assert.ok((await tesla.innerText()).replace(/\s+/g,' ').includes(text),'Tesla page shows '+text);
-    assert.equal(await tesla.locator('.tesla-grid').getByRole('button').count(),0,'No command button until the limit is moved');
+    // Car commands (owner decision 2026-11-25) live only in the "Comenzi" card; other cards stay read-only.
+    assert.equal(await tesla.locator('.tesla-grid > :not(.tesla-controls)').getByRole('button').count(),0,'No command button until the limit is moved');
+    const controls=tesla.locator('.tesla-controls');
+    assert.ok(await controls.getByRole('button').count()>0,'Tesla command buttons for the control role');
+    await controls.getByRole('button').first().click();   // Playwright dismisses the confirm(): nothing may be sent
+    assert.equal(writes.length,1,'A car command is never sent without confirmation');
     assert.equal(await tesla.getByRole('link',{name:'Deschide harta'}).getAttribute('rel'),'noreferrer');
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'No horizontal overflow on Tesla '+w);
     await page.waitForTimeout(500);
